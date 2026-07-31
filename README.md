@@ -28,7 +28,7 @@ Proyecto_IA1_ApellidoNombre/
     ├── 07 - Configuracion/
     ├── 08 - Administrador/
     ├── 09 - Errores/
-    └── 09 - Permisos/
+    └── 10 - Logs/
 ```
 
 ## Funcionalidades
