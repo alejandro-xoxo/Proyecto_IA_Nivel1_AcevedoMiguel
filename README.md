@@ -86,4 +86,5 @@ Solo los usuarios registrados en la hoja `Usuarios` con `permitido = TRUE` puede
 
 ## Autor
 
-Proyecto académico — Nivel 1 de Automatización con IA.
+Miguel Alejandro Acevedo
+
