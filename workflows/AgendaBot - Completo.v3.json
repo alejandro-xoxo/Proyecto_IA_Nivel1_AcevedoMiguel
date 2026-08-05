@@ -1,0 +1,3534 @@
+{
+  "name": "AgendaBot - Completo.v3",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        368,
+        -128
+      ],
+      "id": "9fc0b68d-1631-45cb-bde1-52f501e9cc7f",
+      "name": "Recibir Mensaje de Telegram (Entrada)",
+      "webhookId": "agendabot-router-webhook",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const msg = $input.item.json.message;\nreturn [{ json: {\n  chatId: msg.chat.id,\n  telegramUser: msg.from.id,\n  nombreUsuario: msg.from.first_name || '',\n  text: (msg.text || '').trim()\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        -128
+      ],
+      "id": "83c70f45-1f14-4aae-87e6-ee46284ff9cf",
+      "name": "Extraer Datos del Mensaje (Entrada)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1775607044,
+          "mode": "list",
+          "cachedResultName": "Sessions",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1775607044"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1008,
+        -128
+      ],
+      "id": "cd6a318b-e88c-453a-829e-a17b20aed144",
+      "name": "Leer Sesión Guardada (Sesión)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const entrada = $('Extraer Datos del Mensaje (Entrada)').item.json;\nconst filas = $input.all().map(i => i.json).filter(r => String(r.telegram_user) === String(entrada.telegramUser));\nconst session = filas.length ? filas[0] : null;\nreturn [{ json: { ...entrada, session } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1328,
+        -128
+      ],
+      "id": "39decffb-17cc-410c-ace6-b5fcd1d6eb67",
+      "name": "Armar Objeto de Sesión (Sesión)"
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst item = $input.item.json;\nconst chatId = item.chatId;\nconst telegramUser = String(item.telegramUser);\nconst nombreUsuario = item.nombreUsuario || \"\";\nconst textoRaw = (item.text || \"\")\n  .trim()\n  .replace(/[‐-―−]/g, \"-\")   // normaliza guion largo/en-dash/em-dash/minus a guion normal\n  .replace(/[ ​-‍﻿]/g, \"\"); // quita espacios/caracteres invisibles\nconst permitido = item.permitido;\nconst rolUsuario = item.rol || \"usuario\";\n\n// ── Control de acceso (Artículo 12) ───────────────────────────────────────────\nif (permitido === false) {\n  return [{ json: {\n    chatId, telegramUser,\n    respuesta: `🚫 Acceso restringido.\\n\\nTu usuario no está autorizado para usar AgendaBot.\\nContacta al administrador para solicitar acceso.`,\n    nuevaPantalla: \"MENU_PRINCIPAL\", nuevoPaso: \"\", nuevosDatos: \"{}\",\n    accion: \"NINGUNA\", pantallaLog: \"ACCESO_DENEGADO\", opcionLog: textoRaw\n  }}];\n}\n\nlet session = item.session || null;\nlet pantalla = session ? session.pantalla_actual : \"MENU_PRINCIPAL\";\nlet paso = session ? session.paso_actual : \"\";\nlet datos = {};\ntry { datos = session && session.datos_parciales ? JSON.parse(session.datos_parciales) : {}; }\ncatch(e) { datos = {}; }\n\n// ── Textos base ──────────────────────────────────────────────────────────────\nconst MENU_PRINCIPAL_TXT = `🧭 ¿En qué te puedo ayudar hoy?\\n\\n**Menú principal:**\\n- **0.** Ayuda\\n- **1.** Agenda (citas)\\n- **2.** Tareas\\n- **3.** Recordatorios\\n- **4.** Hábitos\\n- **5.** Listas\\n- **6.** Reportes\\n- **7.** Configuración\\n- **8.** Administrador\\n\\nSi quieres empezar rápido, te recomiendo la opción **1 (Agenda)**.`;\n\nconst BIENVENIDA = `Hola, soy **AgendaBot** 👋\\n\\nEstoy aquí para ayudarte a organizar tus citas, tareas y recordatorios de forma sencilla y sin complicaciones.\\n\\nPuedes escribirme en cualquier momento.\\nPara avanzar, solo tienes que escribir el número de la opción que quieras usar.\\n\\n${MENU_PRINCIPAL_TXT}\\n\\n💡 Tip rápido: escribe solo el número (por ejemplo: **1**) y presiona enviar.`;\n\nconst MENU_AGENDA_TXT = `📅 Perfecto, vamos con tu **agenda**.\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Agendar una nueva cita\\n- **2.** Consultar tu agenda\\n- **3.** Reprogramar una cita\\n- **4.** Cancelar una cita\\n- **5.** Marcar una cita como completada\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_TAREAS_TXT = `📋 Vamos con tus **tareas**.\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Crear tarea nueva\\n- **2.** Ver tareas pendientes\\n- **3.** Cambiar estado de tarea\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_HABITOS_TXT = `🔁 Vamos con tus **hábitos**.\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Crear nuevo hábito\\n- **2.** Ver mis hábitos\\n- **3.** Activar/Desactivar hábito\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_RECORDATORIOS_TXT = `🔔 Vamos con tus **recordatorios**.\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Crear recordatorio\\n- **2.** Ver mis recordatorios\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_LISTAS_TXT = `📃 Vamos con tus **listas**.\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Crear una lista nueva\\n- **2.** Ver mis listas\\n- **3.** Agregar ítem a una lista\\n- **4.** Ver ítems de una lista\\n- **5.** Marcar ítem como completado\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_ADMIN_TXT = `🛠️ **Panel de administrador**.\\n\\n- **1.** Ver usuarios\\n- **2.** Ver logs recientes\\n- **3.** Agregar nuevo usuario\\n- **4.** Cambiar permiso de usuario\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_REPORTES_TXT = `📊 Vamos con tus **reportes**.\\n\\n¿Qué quieres consultar?\\n\\n- **1.** Reporte diario\\n- **2.** Reporte semanal\\n- **3.** Productividad (tareas)\\n- **4.** Hábitos (cumplimiento)\\n- **5.** Agenda (estado de citas)\\n- **6.** Productividad por usuario (reporte completo)\\n- **9.** Volver al menú principal (9)`;\n\nconst MENU_CONFIGURACION_TXT = `⚙️ **Configuración**\\n\\n¿Qué deseas cambiar?\\n\\n- **1.** Cambiar mi nombre\\n- **2.** Cambiar horario de recordatorios\\n- **9.** Volver al menú principal (9)`;\n\nconst OPCION_INVALIDA = (opciones, pantallaNombre) =>\n  `⚠️ Ups, esa opción no existe en este menú.\\n\\nPor favor escribe uno de los números que ves en pantalla.\\n\\nEstás en: **${pantallaNombre}**\\nOpciones disponibles: **${opciones}**`;\n\n// ── Helper central ───────────────────────────────────────────────────────────\nfunction R(resp, nuevaPantalla, nuevoPaso, nuevosDatos, accion, opcionLog) {\n  return { json: {\n    chatId, telegramUser,\n    respuesta: resp,\n    nuevaPantalla,\n    nuevoPaso: nuevoPaso || \"\",\n    nuevosDatos: JSON.stringify(nuevosDatos || {}),\n    accion: accion || \"NINGUNA\",\n    pantallaLog: pantalla,\n    opcionLog: opcionLog || textoRaw\n  }};\n}\n\n// ── Validadores ──────────────────────────────────────────────────────────────\nfunction esFechaValida(s) {\n  if (!/^\\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\\d|3[01])$/.test(s)) return false;\n  const [y,m,d] = s.split('-').map(Number);\n  return new Date(y,m-1,d) >= new Date(new Date().setHours(0,0,0,0));\n}\nfunction esHoraValida(s) { return /^([01]\\d|2[0-3]):([0-5]\\d)$/.test(s); }\n\n// ── Primer uso / /start ──────────────────────────────────────────────────────\nif (!session)                              return [R(BIENVENIDA, \"MENU_PRINCIPAL\",\"\",{})];\nif (textoRaw.toLowerCase()===\"/start\")     return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n\n// ═══════════════════════════════════════════════════════════════════════════════\nswitch (pantalla) {\n\n// ── MENÚ PRINCIPAL ────────────────────────────────────────────────────────────\ncase \"MENU_PRINCIPAL\": {\n  if (!/^[0-8]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"0 al 8\",\"Menú principal\")+\"\\n\\n\"+MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  switch(textoRaw){\n    case \"0\": return [R(`ℹ️ **Ayuda:**\\n- Escribe el número de la opción deseada.\\n- Usa **9** para volver o cancelar en cualquier momento.\\n\\n${MENU_PRINCIPAL_TXT}`,\"MENU_PRINCIPAL\",\"\",{})];\n    case \"1\": return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n    case \"2\": return [R(MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n    case \"3\": return [R(MENU_RECORDATORIOS_TXT,\"MENU_RECORDATORIOS\",\"\",{})];\n    case \"4\": return [R(MENU_HABITOS_TXT,\"MENU_HABITOS\",\"\",{})];\n    case \"5\": return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n    case \"6\": return [R(MENU_REPORTES_TXT,\"MENU_REPORTES\",\"\",{})];\n    case \"7\": return [R(MENU_CONFIGURACION_TXT,\"MENU_CONFIGURACION\",\"\",{})];\n    case \"8\":\n      if (rolUsuario.startsWith(\"admin\")===false) return [R(`⛔ No tienes permisos de administrador.\\n\\n${MENU_PRINCIPAL_TXT}`,\"MENU_PRINCIPAL\",\"\",{})];\n      return [R(MENU_ADMIN_TXT,\"MENU_ADMIN\",\"\",{})];\n  }\n  break;\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 1 — AGENDA COMPLETA\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_AGENDA\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[1-5]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,3,4,5,9\",\"Menú Agenda\")+\"\\n\\n\"+MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`Empecemos a crear tu cita.\\n\\nPaso 1 de 6\\n¿Cuál es la fecha de la cita?\\n\\nFormato: YYYY-MM-DD\\nEjemplo: 2025-12-20\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO1_FECHA\",{})];\n  if (textoRaw===\"2\") return [R(`📅 Consultar agenda\\n\\nEscribe la fecha que deseas consultar:\\n\\nFormato: YYYY-MM-DD\\nEjemplo: 2025-12-20\\n\\n- **9.** Cancelar (9)`,\"AGENDA_CONSULTAR\",\"PASO1_FECHA\",{})];\n  if (textoRaw===\"3\") return [R(`🔄 Reprogramar cita\\n\\nEscribe el ID de la cita a reprogramar:\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO1_ID\",{})];\n  if (textoRaw===\"4\") return [R(`❌ Cancelar cita\\n\\nEscribe el ID de la cita a cancelar:\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_CANCELAR\",\"PASO1_ID\",{})];\n  if (textoRaw===\"5\") return [R(`✅ Marcar cita como completada\\n\\nEscribe el ID de la cita:\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_COMPLETAR\",\"PASO1_ID\",{})];\n  break;\n}\n\n// — Wizard crear cita (6 pasos) ------------------------------------------------\ncase \"CITA_WIZARD\": {\n  if (textoRaw===\"9\") return [R(`Operación cancelada.\\n\\n${MENU_AGENDA_TXT}`,\"MENU_AGENDA\",\"\",{})];\n  if (paso===\"PASO1_FECHA\") {\n    if (!esFechaValida(textoRaw)) return [R(`❌ Fecha inválida o en el pasado.\\n\\nFormato: YYYY-MM-DD\\nEjemplo: 2025-12-20\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO1_FECHA\",datos)];\n    datos.fecha=textoRaw;\n    return [R(`✅ Fecha: **${textoRaw}**\\n\\nPaso 2 de 6\\n¿A qué hora será la cita?\\n\\nFormato 24 horas (HH:MM)\\nEjemplo: 14:30\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO2_HORA\",datos)];\n  }\n  if (paso===\"PASO2_HORA\") {\n    if (!esHoraValida(textoRaw)) return [R(`❌ Hora inválida.\\n\\nFormato 24 horas (HH:MM)\\nEjemplo: 14:30\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO2_HORA\",datos)];\n    datos.hora=textoRaw;\n    return [R(`✅ Hora: **${textoRaw}**\\n\\nPaso 3 de 6\\n¿A nombre de quién es la cita?\\n\\nEscribe el nombre completo.\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO3_NOMBRE\",datos)];\n  }\n  if (paso===\"PASO3_NOMBRE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un nombre válido (mínimo 2 caracteres).\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO3_NOMBRE\",datos)];\n    datos.nombre=textoRaw;\n    return [R(`✅ Nombre: **${textoRaw}**\\n\\nPaso 4 de 6\\nCuéntame brevemente el motivo de la cita.\\n\\nEjemplo: Asesoría técnica\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO4_MOTIVO\",datos)];\n  }\n  if (paso===\"PASO4_MOTIVO\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un motivo válido.\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO4_MOTIVO\",datos)];\n    datos.motivo=textoRaw;\n    return [R(`✅ Motivo: **${textoRaw}**\\n\\nPaso 5 de 6\\n¿Cómo será la atención?\\n\\n- **1.** Presencial\\n- **2.** Virtual\\n- **3.** Llamada\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO5_CANAL\",datos)];\n  }\n  if (paso===\"PASO5_CANAL\") {\n    const canales={\"1\":\"Presencial\",\"2\":\"Virtual\",\"3\":\"Llamada\"};\n    if (!canales[textoRaw]) return [R(`❌ Elige 1 (Presencial), 2 (Virtual) o 3 (Llamada).\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO5_CANAL\",datos)];\n    datos.canal=canales[textoRaw];\n    const resumen=`Revisa la información de tu cita:\\n\\nFecha: **${datos.fecha}**\\nHora: **${datos.hora}**\\nCliente: **${datos.nombre}**\\nMotivo: **${datos.motivo}**\\nCanal: **${datos.canal}**\\n\\n¿Qué deseas hacer?\\n- **1.** Confirmar y guardar\\n- **2.** Editar información\\n- **3.** Cancelar`;\n    return [R(resumen,\"CITA_WIZARD\",\"PASO6_CONFIRMAR\",datos)];\n  }\n  if (paso===\"PASO6_CONFIRMAR\") {\n    if (textoRaw===\"1\") {\n      const id=\"CITA-\"+Date.now().toString().slice(-6);\n      datos.id_generado=id;\n      return [R(`🔍 Verificando disponibilidad para el **${datos.fecha}** a las **${datos.hora}**...`,\"POST_CITA\",\"\",datos,\"VERIFICAR_Y_GUARDAR_CITA\")];\n    }\n    if (textoRaw===\"2\") return [R(`Empecemos de nuevo.\\n\\nPaso 1 de 6\\n¿Cuál es la fecha de la cita?\\n\\nFormato: YYYY-MM-DD\\n\\n- **9.** Cancelar (9)`,\"CITA_WIZARD\",\"PASO1_FECHA\",{})];\n    if (textoRaw===\"3\") return [R(`Operación cancelada.\\n\\n${MENU_AGENDA_TXT}`,\"MENU_AGENDA\",\"\",{})];\n    return [R(`Elige 1 (Confirmar), 2 (Editar) o 3 (Cancelar).`,\"CITA_WIZARD\",\"PASO6_CONFIRMAR\",datos)];\n  }\n  break;\n}\ncase \"POST_CITA\": {\n  if (textoRaw===\"1\") return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 (Volver a Agenda) o 2 (Menú principal).`,\"POST_CITA\",\"\",datos)];\n}\n\n// — Consultar agenda -----------------------------------------------------------\ncase \"AGENDA_CONSULTAR\": {\n  if (textoRaw===\"9\") return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (paso===\"PASO1_FECHA\") {\n    if (!esFechaValida(textoRaw) && textoRaw!==\"HOY\")\n      return [R(`❌ Fecha inválida.\\n\\nFormato: YYYY-MM-DD\\nO escribe HOY para ver las citas de hoy.\\n\\n- **9.** Cancelar (9)`,\"AGENDA_CONSULTAR\",\"PASO1_FECHA\",datos)];\n    const fechaBuscar = textoRaw===\"HOY\" ? new Date().toISOString().split(\"T\")[0] : textoRaw;\n    datos.fecha_consulta=fechaBuscar;\n    return [R(`🔍 Buscando citas para el **${fechaBuscar}**...\\n\\n¿Deseas buscar otra fecha después?\\n- **1.** Buscar otra fecha\\n- **9.** Volver a Agenda (9)`,\"AGENDA_CONSULTAR\",\"PASO2_OPCIONES\",datos,\"VER_CITAS\")];\n  }\n  if (paso===\"PASO2_OPCIONES\") {\n    if (textoRaw===\"1\") return [R(`📅 Consultar agenda\\n\\nEscribe la fecha:\\n\\nFormato: YYYY-MM-DD\\nO escribe HOY\\n\\n- **9.** Cancelar (9)`,\"AGENDA_CONSULTAR\",\"PASO1_FECHA\",{})];\n    return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  }\n  break;\n}\n\n// — Reprogramar cita -----------------------------------------------------------\ncase \"AGENDA_REPROGRAMAR\": {\n  if (textoRaw===\"9\") return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (paso===\"PASO1_ID\") {\n    if (!textoRaw.startsWith(\"CITA-\"))\n      return [R(`❌ ID inválido.\\n\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO1_ID\",datos)];\n    datos.id_cita=textoRaw;\n    return [R(`🔄 Cita: **${textoRaw}**\\n\\nEscribe la nueva fecha:\\n\\nFormato: YYYY-MM-DD\\nEjemplo: 2025-12-25\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO2_FECHA\",datos)];\n  }\n  if (paso===\"PASO2_FECHA\") {\n    if (!esFechaValida(textoRaw)) return [R(`❌ Fecha inválida o en el pasado.\\n\\nFormato: YYYY-MM-DD\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO2_FECHA\",datos)];\n    datos.nueva_fecha=textoRaw;\n    return [R(`✅ Nueva fecha: **${textoRaw}**\\n\\nEscribe la nueva hora:\\n\\nFormato: HH:MM\\nEjemplo: 10:00\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO3_HORA\",datos)];\n  }\n  if (paso===\"PASO3_HORA\") {\n    if (!esHoraValida(textoRaw)) return [R(`❌ Hora inválida.\\n\\nFormato: HH:MM\\n\\n- **9.** Cancelar (9)`,\"AGENDA_REPROGRAMAR\",\"PASO3_HORA\",datos)];\n    datos.nueva_hora=textoRaw;\n    return [R(`¿Confirmas la reprogramación?\\n\\nCita: **${datos.id_cita}**\\nNueva fecha: **${datos.nueva_fecha}**\\nNueva hora: **${textoRaw}**\\n\\n- **1.** Confirmar\\n- **2.** Cancelar`,\"AGENDA_REPROGRAMAR\",\"PASO4_CONFIRMAR\",datos)];\n  }\n  if (paso===\"PASO4_CONFIRMAR\") {\n    if (textoRaw===\"1\") return [R(`✅ Cita **${datos.id_cita}** reprogramada correctamente.\\n\\nNueva fecha: **${datos.nueva_fecha}** a las **${datos.nueva_hora}**\\n\\n- **1.** Volver a Agenda\\n- **2.** Menú principal`,\"POST_CITA\",\"\",datos,\"ACTUALIZAR_CITA\")];\n    return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  }\n  break;\n}\n\n// — Cancelar cita -------------------------------------------------------------\ncase \"AGENDA_CANCELAR\": {\n  if (textoRaw===\"9\") return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (paso===\"PASO1_ID\") {\n    if (!textoRaw.startsWith(\"CITA-\"))\n      return [R(`❌ ID inválido.\\n\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_CANCELAR\",\"PASO1_ID\",datos)];\n    datos.id_cita=textoRaw;\n    return [R(`⚠️ ¿Confirmas que deseas CANCELAR la cita **${textoRaw}**?\\n\\nEsta acción no se puede deshacer.\\n\\n- **1.** Sí, cancelar cita\\n- **2.** No, volver a Agenda`,\"AGENDA_CANCELAR\",\"PASO2_CONFIRMAR\",datos)];\n  }\n  if (paso===\"PASO2_CONFIRMAR\") {\n    if (textoRaw===\"1\") { datos.estado_destino=\"cancelada\"; return [R(`✅ Cita **${datos.id_cita}** cancelada correctamente.\\n\\n- **1.** Volver a Agenda\\n- **2.** Menú principal`,\"POST_CITA\",\"\",datos,\"ACTUALIZAR_ESTADO_CITA\")]; }\n    return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  }\n  break;\n}\n\n// — Completar cita -------------------------------------------------------------\ncase \"AGENDA_COMPLETAR\": {\n  if (textoRaw===\"9\") return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  if (paso===\"PASO1_ID\") {\n    if (!textoRaw.startsWith(\"CITA-\"))\n      return [R(`❌ ID inválido.\\n\\nEjemplo: CITA-123456\\n\\n- **9.** Cancelar (9)`,\"AGENDA_COMPLETAR\",\"PASO1_ID\",datos)];\n    datos.id_cita=textoRaw;\n    return [R(`✅ ¿Confirmas que deseas marcar como COMPLETADA la cita **${textoRaw}**?\\n\\n- **1.** Sí, marcar como completada\\n- **2.** No, volver a Agenda`,\"AGENDA_COMPLETAR\",\"PASO2_CONFIRMAR\",datos)];\n  }\n  if (paso===\"PASO2_CONFIRMAR\") {\n    if (textoRaw===\"1\") { datos.estado_destino=\"completada\"; return [R(`✅ Cita **${datos.id_cita}** marcada como completada.\\n\\n- **1.** Volver a Agenda\\n- **2.** Menú principal`,\"POST_CITA\",\"\",datos,\"ACTUALIZAR_ESTADO_CITA\")]; }\n    return [R(MENU_AGENDA_TXT,\"MENU_AGENDA\",\"\",{})];\n  }\n  break;\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 2 — TAREAS COMPLETAS\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_TAREAS\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[1-3]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,3,9\",\"Menú Tareas\")+\"\\n\\n\"+MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`Vamos a crear tu tarea.\\n\\nPaso 1 de 3\\n¿Cuál es el título de la tarea?\\n\\nEjemplo: Preparar informe mensual\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO1_TITULO\",{})];\n  if (textoRaw===\"2\") return [R(`📋 Consultando tus tareas...`,\"MENU_TAREAS\",\"\",{},\"VER_TAREAS\")];\n  if (textoRaw===\"3\") return [R(`🔄 Cambiar estado de tarea\\n\\nEscribe el ID de la tarea:\\nEjemplo: TAREA-123456\\n\\n- **9.** Cancelar (9)`,\"TAREA_ESTADO\",\"PASO1_ID\",{})];\n  break;\n}\n\n// — Wizard crear tarea (3 pasos) -----------------------------------------------\ncase \"TAREA_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n  if (paso===\"PASO1_TITULO\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un título válido.\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO1_TITULO\",datos)];\n    datos.titulo=textoRaw;\n    return [R(`✅ Título: **${textoRaw}**\\n\\nPaso 2 de 3\\n¿Cuál es la prioridad?\\n\\n- **1.** Alta\\n- **2.** Media\\n- **3.** Baja\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO2_PRIORIDAD\",datos)];\n  }\n  if (paso===\"PASO2_PRIORIDAD\") {\n    const prios={\"1\":\"Alta\",\"2\":\"Media\",\"3\":\"Baja\"};\n    if (!prios[textoRaw]) return [R(`❌ Elige 1 (Alta), 2 (Media) o 3 (Baja).\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO2_PRIORIDAD\",datos)];\n    datos.prioridad=prios[textoRaw];\n    return [R(`✅ Prioridad: **${datos.prioridad}**\\n\\nPaso 3 de 3\\n¿Cuál es la fecha objetivo?\\n\\nFormato: YYYY-MM-DD\\nO escribe SIN si no tiene fecha límite.\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO3_FECHA\",datos)];\n  }\n  if (paso===\"PASO3_FECHA\") {\n    if (textoRaw!==\"SIN\" && !esFechaValida(textoRaw)) return [R(`❌ Fecha inválida.\\n\\nUsa YYYY-MM-DD o escribe SIN.\\n\\n- **9.** Cancelar (9)`,\"TAREA_WIZARD\",\"PASO3_FECHA\",datos)];\n    datos.fecha_objetivo=textoRaw;\n    const id=\"TAREA-\"+Date.now().toString().slice(-6);\n    datos.id_generado=id;\n    return [R(`¡Tarea creada correctamente! ✅\\n\\nID: **${id}**\\nTítulo: **${datos.titulo}**\\nPrioridad: **${datos.prioridad}**\\nFecha objetivo: **${textoRaw}**\\nEstado: pendiente\\n\\n- **1.** Crear otra tarea\\n- **2.** Ir al menú principal`,\"POST_TAREA\",\"\",datos,\"GUARDAR_TAREA\")];\n  }\n  break;\n}\n\n// — Ver tareas ----------------------------------------------------------------\ncase \"TAREA_VER\": {\n  if (textoRaw===\"9\") return [R(MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n  if (paso===\"PASO1_FILTRO\") {\n    return [R(`📋 Tareas pendientes:\\n\\nNo se encontraron tareas pendientes registradas.\\n\\nEscribe 1 para crear una tarea o 9 para volver.`,\"MENU_TAREAS\",\"\",{})];\n  }\n  break;\n}\n\n// — Cambiar estado tarea -------------------------------------------------------\ncase \"TAREA_ESTADO\": {\n  if (textoRaw===\"9\") return [R(MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n  if (paso===\"PASO1_ID\") {\n    if (!textoRaw.startsWith(\"TAREA-\")) return [R(`❌ ID inválido.\\n\\nEjemplo: TAREA-123456\\n\\n- **9.** Cancelar (9)`,\"TAREA_ESTADO\",\"PASO1_ID\",datos)];\n    datos.id_tarea=textoRaw;\n    return [R(`🔄 Tarea: **${textoRaw}**\\n\\n¿Cuál es el nuevo estado?\\n\\n- **1.** Pendiente\\n- **2.** En progreso\\n- **3.** Completada\\n- **4.** Cancelada\\n\\n- **9.** Cancelar (9)`,\"TAREA_ESTADO\",\"PASO2_ESTADO\",datos)];\n  }\n  if (paso===\"PASO2_ESTADO\") {\n    const estados={\"1\":\"pendiente\",\"2\":\"en_progreso\",\"3\":\"completada\",\"4\":\"cancelada\"};\n    if (!estados[textoRaw]) return [R(`❌ Elige una opción del 1 al 4.\\n\\n- **9.** Cancelar (9)`,\"TAREA_ESTADO\",\"PASO2_ESTADO\",datos)];\n    datos.nuevo_estado=estados[textoRaw];\n    return [R(`✅ Estado de **${datos.id_tarea}** actualizado a: **${datos.nuevo_estado}**\\n\\n- **1.** Volver a Tareas\\n- **2.** Menú principal`,\"POST_TAREA\",\"\",datos,\"ACTUALIZAR_TAREA\")];\n  }\n  break;\n}\n\ncase \"POST_TAREA\": {\n  if (textoRaw===\"1\") return [R(MENU_TAREAS_TXT,\"MENU_TAREAS\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_TAREA\",\"\",datos)];\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 3 — RECORDATORIOS COMPLETOS\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_RECORDATORIOS\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[12]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,9\",\"Menú Recordatorios\")+\"\\n\\n\"+MENU_RECORDATORIOS_TXT,\"MENU_RECORDATORIOS\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`Vamos a crear tu recordatorio.\\n\\nPaso 1 de 3\\n¿Cuál es el mensaje del recordatorio?\\n\\nEjemplo: Llamar al cliente Juan\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO1_MENSAJE\",{})];\n  if (textoRaw===\"2\") return [R(`🔔 Consultando tus recordatorios...`,\"MENU_RECORDATORIOS\",\"\",{},\"VER_RECORDATORIOS\")];\n  break;\n}\n\n// — Wizard crear recordatorio (3 pasos) ----------------------------------------\ncase \"RECORDATORIO_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_RECORDATORIOS_TXT,\"MENU_RECORDATORIOS\",\"\",{})];\n  if (paso===\"PASO1_MENSAJE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un mensaje válido.\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO1_MENSAJE\",datos)];\n    datos.mensaje=textoRaw;\n    return [R(`✅ Mensaje: **${textoRaw}**\\n\\nPaso 2 de 3\\n¿En qué fecha?\\n\\nFormato: YYYY-MM-DD\\nEjemplo: 2025-12-20\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO2_FECHA\",datos)];\n  }\n  if (paso===\"PASO2_FECHA\") {\n    if (!esFechaValida(textoRaw)) return [R(`❌ Fecha inválida o en el pasado.\\n\\nFormato: YYYY-MM-DD\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO2_FECHA\",datos)];\n    datos.fecha=textoRaw;\n    return [R(`✅ Fecha: **${textoRaw}**\\n\\nPaso 3 de 3\\n¿A qué hora?\\n\\nFormato 24 horas (HH:MM)\\nEjemplo: 09:00\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO3_HORA\",datos)];\n  }\n  if (paso===\"PASO3_HORA\") {\n    if (!esHoraValida(textoRaw)) return [R(`❌ Hora inválida.\\n\\nFormato: HH:MM\\n\\n- **9.** Cancelar (9)`,\"RECORDATORIO_WIZARD\",\"PASO3_HORA\",datos)];\n    datos.hora=textoRaw;\n    const id=\"REC-\"+Date.now().toString().slice(-6);\n    datos.id_generado=id;\n    return [R(`¡Recordatorio creado! ✅\\n\\nID: **${id}**\\nMensaje: **${datos.mensaje}**\\nFecha: **${datos.fecha}**\\nHora: **${textoRaw}**\\n\\n- **1.** Crear otro recordatorio\\n- **2.** Ir al menú principal`,\"POST_RECORDATORIO\",\"\",datos,\"GUARDAR_RECORDATORIO\")];\n  }\n  break;\n}\ncase \"POST_RECORDATORIO\": {\n  if (textoRaw===\"1\") return [R(MENU_RECORDATORIOS_TXT,\"MENU_RECORDATORIOS\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_RECORDATORIO\",\"\",datos)];\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 4 — HÁBITOS COMPLETOS\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_HABITOS\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[1-3]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,3,9\",\"Menú Hábitos\")+\"\\n\\n\"+MENU_HABITOS_TXT,\"MENU_HABITOS\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`Vamos a crear tu hábito.\\n\\nPaso 1 de 3\\n¿Cuál es el nombre del hábito?\\n\\nEjemplo: Leer 20 minutos\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO1_NOMBRE\",{})];\n  if (textoRaw===\"2\") return [R(`🔁 Consultando tus hábitos...`,\"MENU_HABITOS\",\"\",{},\"VER_HABITOS\")];\n  if (textoRaw===\"3\") return [R(`🔄 Activar/Desactivar hábito\\n\\nEscribe el ID del hábito:\\nEjemplo: HABITO-123456\\n\\n- **9.** Cancelar (9)`,\"HABITO_TOGGLE\",\"PASO1_ID\",{})];\n  break;\n}\n\n// — Wizard crear hábito (3 pasos) ----------------------------------------------\ncase \"HABITO_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_HABITOS_TXT,\"MENU_HABITOS\",\"\",{})];\n  if (paso===\"PASO1_NOMBRE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un nombre válido.\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO1_NOMBRE\",datos)];\n    datos.nombre=textoRaw;\n    return [R(`✅ Hábito: **${textoRaw}**\\n\\nPaso 2 de 3\\n¿Con qué frecuencia?\\n\\n- **1.** Diario\\n- **2.** Semanal\\n- **3.** Mensual\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO2_FRECUENCIA\",datos)];\n  }\n  if (paso===\"PASO2_FRECUENCIA\") {\n    const frecs={\"1\":\"Diario\",\"2\":\"Semanal\",\"3\":\"Mensual\"};\n    if (!frecs[textoRaw]) return [R(`❌ Elige 1 (Diario), 2 (Semanal) o 3 (Mensual).\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO2_FRECUENCIA\",datos)];\n    datos.frecuencia=frecs[textoRaw];\n    return [R(`✅ Frecuencia: **${datos.frecuencia}**\\n\\nPaso 3 de 3\\n¿A qué hora quieres el recordatorio?\\n\\nFormato 24 horas (HH:MM)\\nEjemplo: 07:00\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO3_HORA\",datos)];\n  }\n  if (paso===\"PASO3_HORA\") {\n    if (!esHoraValida(textoRaw)) return [R(`❌ Hora inválida.\\n\\nFormato: HH:MM\\n\\n- **9.** Cancelar (9)`,\"HABITO_WIZARD\",\"PASO3_HORA\",datos)];\n    datos.hora=textoRaw;\n    datos.estado=\"activo\";\n    const id=\"HABITO-\"+Date.now().toString().slice(-6);\n    datos.id_generado=id;\n    return [R(`¡Hábito creado! ✅\\n\\nID: **${id}**\\nNombre: **${datos.nombre}**\\nFrecuencia: **${datos.frecuencia}**\\nRecordatorio: **${textoRaw}**\\nEstado: activo\\n\\n- **1.** Crear otro hábito\\n- **2.** Ir al menú principal`,\"POST_HABITO\",\"\",datos,\"GUARDAR_HABITO\")];\n  }\n  break;\n}\n\n// — Activar/Desactivar hábito -------------------------------------------------\ncase \"HABITO_TOGGLE\": {\n  if (textoRaw===\"9\") return [R(MENU_HABITOS_TXT,\"MENU_HABITOS\",\"\",{})];\n  if (paso===\"PASO1_ID\") {\n    if (!textoRaw.startsWith(\"HABITO-\")) return [R(`❌ ID inválido.\\n\\nEjemplo: HABITO-123456\\n\\n- **9.** Cancelar (9)`,\"HABITO_TOGGLE\",\"PASO1_ID\",datos)];\n    datos.id_habito=textoRaw;\n    return [R(`🔄 Hábito: **${textoRaw}**\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Activar hábito\\n- **2.** Desactivar hábito\\n\\n- **9.** Cancelar (9)`,\"HABITO_TOGGLE\",\"PASO2_ACCION\",datos)];\n  }\n  if (paso===\"PASO2_ACCION\") {\n    if (textoRaw!==\"1\"&&textoRaw!==\"2\") return [R(`❌ Elige 1 (Activar) o 2 (Desactivar).\\n\\n- **9.** Cancelar (9)`,\"HABITO_TOGGLE\",\"PASO2_ACCION\",datos)];\n    const nuevoEstado = textoRaw===\"1\" ? \"activo\" : \"inactivo\";\n    datos.nuevo_estado=nuevoEstado;\n    return [R(`✅ Hábito **${datos.id_habito}** marcado como **${nuevoEstado}**.\\n\\n- **1.** Volver a Hábitos\\n- **2.** Menú principal`,\"POST_HABITO\",\"\",datos,\"ACTUALIZAR_HABITO\")];\n  }\n  break;\n}\n\ncase \"POST_HABITO\": {\n  if (textoRaw===\"1\") return [R(MENU_HABITOS_TXT,\"MENU_HABITOS\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_HABITO\",\"\",datos)];\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 5 — LISTAS COMPLETAS\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_LISTAS\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[1-5]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,3,4,5,9\",\"Menú Listas\")+\"\\n\\n\"+MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`Vamos a crear tu lista.\\n\\nPaso 1 de 2\\n¿Cuál es el nombre de la lista?\\n\\nEjemplo: Compras del mes\\n\\n- **9.** Cancelar (9)`,\"LISTA_WIZARD\",\"PASO1_NOMBRE\",{})];\n  if (textoRaw===\"2\") return [R(`📃 Consultando tus listas...`,\"MENU_LISTAS\",\"\",{},\"VER_LISTAS\")];\n  if (textoRaw===\"3\") return [R(`➕ Agregar ítem a una lista\\n\\nEscribe el ID de la lista:\\nEjemplo: LISTA-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_WIZARD\",\"PASO1_ID_LISTA\",{})];\n  if (textoRaw===\"4\") return [R(`📋 Ver ítems de una lista\\n\\nEscribe el ID de la lista:\\nEjemplo: LISTA-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_VER\",\"PASO1_ID_LISTA\",{})];\n  if (textoRaw===\"5\") return [R(`✅ Marcar ítem como completado\\n\\nEscribe el ID del ítem:\\nEjemplo: ITEM-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_TOGGLE\",\"PASO1_ID_ITEM\",{})];\n  break;\n}\n\n// — Wizard crear lista (2 pasos) -----------------------------------------------\ncase \"LISTA_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (paso===\"PASO1_NOMBRE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un nombre válido.\\n\\n- **9.** Cancelar (9)`,\"LISTA_WIZARD\",\"PASO1_NOMBRE\",datos)];\n    datos.nombre_lista=textoRaw;\n    return [R(`✅ Lista: **${textoRaw}**\\n\\nPaso 2 de 2\\n¿Qué tipo de lista es?\\n\\n- **1.** Compras\\n- **2.** Tareas\\n- **3.** Otro\\n\\n- **9.** Cancelar (9)`,\"LISTA_WIZARD\",\"PASO2_TIPO\",datos)];\n  }\n  if (paso===\"PASO2_TIPO\") {\n    const tipos={\"1\":\"Compras\",\"2\":\"Tareas\",\"3\":\"Otro\"};\n    if (!tipos[textoRaw]) return [R(`❌ Elige 1 (Compras), 2 (Tareas) o 3 (Otro).\\n\\n- **9.** Cancelar (9)`,\"LISTA_WIZARD\",\"PASO2_TIPO\",datos)];\n    datos.tipo=tipos[textoRaw];\n    datos.items=[];\n    return [R(`Genial, tu lista **${datos.nombre_lista}** va tomando forma. 📝\\n\\nAhora dime los ítems uno por uno.\\n\\n¿Cuál es el primero?\\n\\nEjemplo: Leche\\n\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO3_ITEM\",datos)];\n  }\n  if (paso===\"PASO3_ITEM\") {\n    if (textoRaw.length<1) return [R(`❌ Escribe un ítem válido.\\n\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO3_ITEM\",datos)];\n    datos.items = datos.items || [];\n    datos.items.push(textoRaw);\n    const conteo = datos.items.length;\n    return [R(`Agregado: **${textoRaw}** ✅ (${conteo} ítem${conteo===1?'':'s'} hasta ahora)\\n\\n¿Quieres agregar otro ítem?\\n\\n- **1.** Sí, agregar otro\\n- **2.** No, ya terminé — guardar la lista\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO4_CONTINUAR\",datos)];\n  }\n  if (paso===\"PASO4_CONTINUAR\") {\n    if (textoRaw===\"1\") return [R(`¿Cuál es el siguiente ítem?\\n\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO3_ITEM\",datos)];\n    if (textoRaw===\"2\") {\n      if (!datos.items || datos.items.length===0)\n        return [R(`Tu lista todavía no tiene ítems. Agrega al menos uno antes de guardar.\\n\\n¿Cuál es el primer ítem?\\n\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO3_ITEM\",datos)];\n      const id=\"LISTA-\"+Date.now().toString().slice(-6);\n      datos.id_generado=id;\n      const resumen = datos.items.map(it=>`   • ${it}`).join(\"\\n\");\n      return [R(`¡Lista guardada! ✅\\n\\nID: **${id}**\\nNombre: **${datos.nombre_lista}**\\nTipo: **${datos.tipo}**\\nÍtems (${datos.items.length}):\\n${resumen}\\n\\n- **1.** Crear otra lista\\n- **2.** Ir al menú principal`,\"POST_LISTA\",\"\",datos,\"GUARDAR_LISTA\")];\n    }\n    return [R(`Elige 1 (agregar otro) o 2 (terminar y guardar).\\n\\n- **9.** Cancelar todo (9)`,\"LISTA_WIZARD\",\"PASO4_CONTINUAR\",datos)];\n  }\n  break;\n}\ncase \"POST_LISTA\": {\n  if (textoRaw===\"1\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_LISTA\",\"\",datos)];\n}\n\n// — Wizard agregar ítem (2 pasos) ----------------------------------------------\ncase \"ITEM_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (paso===\"PASO1_ID_LISTA\") {\n    if (!textoRaw.startsWith(\"LISTA-\")) return [R(`❌ ID inválido.\\n\\nEjemplo: LISTA-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_WIZARD\",\"PASO1_ID_LISTA\",datos)];\n    datos.id_lista=textoRaw;\n    return [R(`✅ Lista: **${textoRaw}**\\n\\nPaso 2 de 2\\n¿Cuál es el ítem que quieres agregar?\\n\\nEjemplo: Leche\\n\\n- **9.** Cancelar (9)`,\"ITEM_WIZARD\",\"PASO2_ITEM\",datos)];\n  }\n  if (paso===\"PASO2_ITEM\") {\n    if (textoRaw.length<1) return [R(`❌ Escribe un ítem válido.\\n\\n- **9.** Cancelar (9)`,\"ITEM_WIZARD\",\"PASO2_ITEM\",datos)];\n    datos.item=textoRaw;\n    const id=\"ITEM-\"+Date.now().toString().slice(-6);\n    datos.id_generado=id;\n    return [R(`¡Listo, agregué **${textoRaw}**! ✅\\n\\n¿Quieres agregar otro ítem a esta misma lista?\\n\\n- **1.** Sí, agregar otro\\n- **2.** No, ya terminé\\n- **9.** Ir al menú principal (9)`,\"POST_ITEM_ADDED\",\"\",datos,\"GUARDAR_ITEM_LISTA\")];\n  }\n  break;\n}\ncase \"POST_ITEM_ADDED\": {\n  if (textoRaw===\"1\") return [R(`Dale 👍 ¿Cuál es el siguiente ítem?\\n\\nEjemplo: Pan\\n\\n- **9.** Cancelar (9)`,\"ITEM_WIZARD\",\"PASO2_ITEM\",datos)];\n  if (textoRaw===\"2\") return [R(`✅ Perfecto, terminaste de agregar ítems a **${datos.id_lista}**.\\n\\n${MENU_LISTAS_TXT}`,\"MENU_LISTAS\",\"\",{})];\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1, 2 o 9.`,\"POST_ITEM_ADDED\",\"\",datos)];\n}\ncase \"POST_ITEM\": {\n  if (textoRaw===\"1\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_ITEM\",\"\",datos)];\n}\n\n// — Ver ítems de una lista ------------------------------------------------------\ncase \"ITEM_VER\": {\n  if (textoRaw===\"9\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (paso===\"PASO1_ID_LISTA\") {\n    if (!textoRaw.startsWith(\"LISTA-\")) return [R(`❌ ID inválido.\\n\\nEjemplo: LISTA-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_VER\",\"PASO1_ID_LISTA\",datos)];\n    datos.id_lista=textoRaw;\n    return [R(`🔍 Buscando ítems de **${textoRaw}**...`,\"MENU_LISTAS\",\"\",datos,\"VER_ITEMS_LISTA\")];\n  }\n  break;\n}\n\n// — Marcar ítem como completado/pendiente ---------------------------------------\ncase \"ITEM_TOGGLE\": {\n  if (textoRaw===\"9\") return [R(MENU_LISTAS_TXT,\"MENU_LISTAS\",\"\",{})];\n  if (paso===\"PASO1_ID_ITEM\") {\n    if (!textoRaw.startsWith(\"ITEM-\")) return [R(`❌ ID inválido.\\n\\nEjemplo: ITEM-123456\\n\\n- **9.** Cancelar (9)`,\"ITEM_TOGGLE\",\"PASO1_ID_ITEM\",datos)];\n    datos.id_item=textoRaw;\n    return [R(`🔄 Ítem: **${textoRaw}**\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Marcar como completado\\n- **2.** Marcar como pendiente\\n\\n- **9.** Cancelar (9)`,\"ITEM_TOGGLE\",\"PASO2_ESTADO\",datos)];\n  }\n  if (paso===\"PASO2_ESTADO\") {\n    if (textoRaw!==\"1\"&&textoRaw!==\"2\") return [R(`❌ Elige 1 (Completado) o 2 (Pendiente).\\n\\n- **9.** Cancelar (9)`,\"ITEM_TOGGLE\",\"PASO2_ESTADO\",datos)];\n    datos.nuevo_estado = textoRaw===\"1\" ? \"completado\" : \"pendiente\";\n    return [R(`✅ Ítem **${datos.id_item}** marcado como **${datos.nuevo_estado}**.\\n\\n- **1.** Volver a Listas\\n- **2.** Menú principal`,\"POST_ITEM\",\"\",datos,\"ACTUALIZAR_ITEM_LISTA\")];\n  }\n  break;\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 6 — REPORTES\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_REPORTES\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[1-6]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,3,4,5,6,9\",\"Menú Reportes\")+\"\\n\\n\"+MENU_REPORTES_TXT,\"MENU_REPORTES\",\"\",{})];\n  if (textoRaw===\"1\" || textoRaw===\"2\") {\n    const rango = textoRaw===\"1\" ? \"hoy\" : \"semana\";\n    return [R(`📊 Consultando tu reporte...`,\"POST_REPORTE\",\"\",{rango},\"VER_REPORTE_CITAS\")];\n  }\n  if (textoRaw===\"3\") return [R(`📈 Consultando tu productividad de tareas...`,\"POST_REPORTE\",\"\",{},\"VER_PRODUCTIVIDAD_TAREAS\")];\n  if (textoRaw===\"4\") return [R(`🔁 Consultando el cumplimiento de tus hábitos...`,\"POST_REPORTE\",\"\",{},\"VER_CUMPLIMIENTO_HABITOS\")];\n  if (textoRaw===\"5\") return [R(`📅 Consultando el estado de tu agenda...`,\"POST_REPORTE\",\"\",{},\"VER_ESTADO_AGENDA\")];\n  if (textoRaw===\"6\") return [R(`Perfecto. Voy a generarte el reporte de productividad.\\n\\nEn un momento ya te lo muestro.`,\"POST_REPORTE\",\"\",{},\"VER_PRODUCTIVIDAD_USUARIOS\")];\n  break;\n}\ncase \"POST_REPORTE\": {\n  if (textoRaw===\"1\") return [R(MENU_REPORTES_TXT,\"MENU_REPORTES\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (textoRaw===\"9\") return [R(MENU_REPORTES_TXT,\"MENU_REPORTES\",\"\",{})];\n  return [R(`¿Qué deseas hacer ahora?\\n\\n- **1.** Volver al menú Reportes\\n- **2.** Volver al menú principal`,\"POST_REPORTE\",\"\",{})];\n}\n\n// ═══════════════════════════════════════════════════════════════════════════════\n// OPCIÓN 7 — CONFIGURACIÓN\n// ═══════════════════════════════════════════════════════════════════════════════\ncase \"MENU_CONFIGURACION\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (!/^[12]$/.test(textoRaw))\n    return [R(OPCION_INVALIDA(\"1,2,9\",\"Menú Configuración\")+\"\\n\\n\"+MENU_CONFIGURACION_TXT,\"MENU_CONFIGURACION\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`¿Cuál es tu nuevo nombre?\\n\\n- **9.** Cancelar (9)`,\"CONFIG_WIZARD\",\"PASO1_NOMBRE\",{})];\n  return [R(`¿A qué hora quieres recibir tus recordatorios?\\n\\nFormato 24 horas (HH:MM)\\nEjemplo: 08:00\\n\\n- **9.** Cancelar (9)`,\"CONFIG_WIZARD\",\"PASO1_HORARIO\",{})];\n}\n\ncase \"CONFIG_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_CONFIGURACION_TXT,\"MENU_CONFIGURACION\",\"\",{})];\n  if (paso===\"PASO1_NOMBRE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un nombre válido.\\n\\n- **9.** Cancelar (9)`,\"CONFIG_WIZARD\",\"PASO1_NOMBRE\",datos)];\n    datos.nuevo_nombre=textoRaw;\n    return [R(`✅ Listo, tu nombre ahora es **${textoRaw}**.\\n\\n- **1.** Volver a Configuración\\n- **2.** Ir al menú principal`,\"POST_CONFIG\",\"\",datos,\"ACTUALIZAR_CONFIG_NOMBRE\")];\n  }\n  if (paso===\"PASO1_HORARIO\") {\n    if (!esHoraValida(textoRaw)) return [R(`❌ Hora inválida.\\n\\nFormato: HH:MM\\n\\n- **9.** Cancelar (9)`,\"CONFIG_WIZARD\",\"PASO1_HORARIO\",datos)];\n    datos.nuevo_horario=textoRaw;\n    return [R(`✅ Listo, tus recordatorios llegarán a las **${textoRaw}**.\\n\\n- **1.** Volver a Configuración\\n- **2.** Ir al menú principal`,\"POST_CONFIG\",\"\",datos,\"ACTUALIZAR_CONFIG_HORARIO\")];\n  }\n  break;\n}\ncase \"POST_CONFIG\": {\n  if (textoRaw===\"1\") return [R(MENU_CONFIGURACION_TXT,\"MENU_CONFIGURACION\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_CONFIG\",\"\",datos)];\n}\n\n// ── ADMIN ─────────────────────────────────────────────────────────────────────\ncase \"MENU_ADMIN\": {\n  if (textoRaw===\"9\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  if (textoRaw===\"1\") return [R(`👥 Consultando usuarios...`,\"MENU_ADMIN\",\"\",{},\"VER_USUARIOS\")];\n  if (textoRaw===\"2\") return [R(`📋 **Logs recientes**\\n\\nFunción disponible desde Google Sheets.\\n\\n- **9.** Volver (9)`,\"MENU_ADMIN\",\"\",{})];\n  if (textoRaw===\"3\") return [R(`Vamos a registrar un nuevo usuario.\\n\\nPaso 1 de 3\\n¿Cuál es el ID de Telegram del usuario?\\n\\nEjemplo: 123456789\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO1_TELEGRAM_ID\",{})];\n  if (textoRaw===\"4\") return [R(`🔐 Cambiar permiso de usuario\\n\\nEscribe el ID de Telegram del usuario:\\n\\n- **9.** Cancelar (9)`,\"USUARIO_PERMISO\",\"PASO1_TELEGRAM_ID\",{})];\n  return [R(OPCION_INVALIDA(\"1,2,3,4,9\",\"Panel Admin\")+\"\\n\\n\"+MENU_ADMIN_TXT,\"MENU_ADMIN\",\"\",{})];\n}\n\n// — Wizard registrar usuario (3 pasos) ------------------------------------------\ncase \"USUARIO_WIZARD\": {\n  if (textoRaw===\"9\") return [R(MENU_ADMIN_TXT,\"MENU_ADMIN\",\"\",{})];\n  if (paso===\"PASO1_TELEGRAM_ID\") {\n    if (!/^\\d+$/.test(textoRaw)) return [R(`❌ El ID de Telegram debe ser numérico.\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO1_TELEGRAM_ID\",datos)];\n    datos.telegram_user_nuevo=textoRaw;\n    return [R(`✅ ID: **${textoRaw}**\\n\\nPaso 2 de 3\\n¿Cuál es el nombre del usuario?\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO2_NOMBRE\",datos)];\n  }\n  if (paso===\"PASO2_NOMBRE\") {\n    if (textoRaw.length<2) return [R(`❌ Escribe un nombre válido.\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO2_NOMBRE\",datos)];\n    datos.nombre=textoRaw;\n    return [R(`✅ Nombre: **${textoRaw}**\\n\\nPaso 3 de 3\\n¿Qué rol tendrá?\\n\\n- **1.** Administrador\\n- **2.** Usuario\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO3_ROL\",datos)];\n  }\n  if (paso===\"PASO3_ROL\") {\n    const roles={\"1\":\"admin\",\"2\":\"usuario\"};\n    if (!roles[textoRaw]) return [R(`❌ Elige 1 (Administrador) o 2 (Usuario).\\n\\n- **9.** Cancelar (9)`,\"USUARIO_WIZARD\",\"PASO3_ROL\",datos)];\n    datos.rol=roles[textoRaw];\n    return [R(`¡Usuario registrado! ✅\\n\\nID: **${datos.telegram_user_nuevo}**\\nNombre: **${datos.nombre}**\\nRol: **${datos.rol}**\\nPermitido: sí\\n\\n- **1.** Registrar otro usuario\\n- **2.** Ir al menú principal`,\"POST_USUARIO\",\"\",datos,\"GUARDAR_USUARIO\")];\n  }\n  break;\n}\ncase \"POST_USUARIO\": {\n  if (textoRaw===\"1\") return [R(MENU_ADMIN_TXT,\"MENU_ADMIN\",\"\",{})];\n  if (textoRaw===\"2\") return [R(MENU_PRINCIPAL_TXT,\"MENU_PRINCIPAL\",\"\",{})];\n  return [R(`Elige 1 o 2.`,\"POST_USUARIO\",\"\",datos)];\n}\n\n// — Cambiar permiso de usuario ---------------------------------------------------\ncase \"USUARIO_PERMISO\": {\n  if (textoRaw===\"9\") return [R(MENU_ADMIN_TXT,\"MENU_ADMIN\",\"\",{})];\n  if (paso===\"PASO1_TELEGRAM_ID\") {\n    if (!/^\\d+$/.test(textoRaw)) return [R(`❌ El ID de Telegram debe ser numérico.\\n\\n- **9.** Cancelar (9)`,\"USUARIO_PERMISO\",\"PASO1_TELEGRAM_ID\",datos)];\n    datos.telegram_user_target=textoRaw;\n    return [R(`🔐 Usuario: **${textoRaw}**\\n\\n¿Qué deseas hacer?\\n\\n- **1.** Permitir acceso\\n- **2.** Bloquear acceso\\n\\n- **9.** Cancelar (9)`,\"USUARIO_PERMISO\",\"PASO2_PERMISO\",datos)];\n  }\n  if (paso===\"PASO2_PERMISO\") {\n    if (textoRaw!==\"1\"&&textoRaw!==\"2\") return [R(`❌ Elige 1 (Permitir) o 2 (Bloquear).\\n\\n- **9.** Cancelar (9)`,\"USUARIO_PERMISO\",\"PASO2_PERMISO\",datos)];\n    datos.nuevo_permitido = textoRaw===\"1\";\n    return [R(`✅ Usuario **${datos.telegram_user_target}** ahora está **${datos.nuevo_permitido ? \"permitido\" : \"bloqueado\"}**.\\n\\n- **1.** Volver a Admin\\n- **2.** Menú principal`,\"POST_USUARIO\",\"\",datos,\"ACTUALIZAR_USUARIO\")];\n  }\n  break;\n}\n\n} // end switch\n\nreturn [R(`Reiniciando por seguridad.\\n\\n${MENU_PRINCIPAL_TXT}`,\"MENU_PRINCIPAL\",\"\",{})];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2288,
+        -128
+      ],
+      "id": "dfe73c61-0676-4c34-ae55-8b0833952eb5",
+      "name": "Procesar Lógica y Generar Respuesta (Núcleo)"
+    },
+    {
+      "parameters": {
+        "operation": "appendOrUpdate",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1775607044,
+          "mode": "list",
+          "cachedResultName": "Sessions",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1775607044"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegram_user": "={{$json.telegramUser}}",
+            "pantalla_actual": "={{$json.nuevaPantalla}}",
+            "paso_actual": "={{$json.nuevoPaso}}",
+            "datos_parciales": "={{$json.nuevosDatos}}",
+            "timestamp_ultima_interaccion": "={{$now.toISO()}}"
+          },
+          "matchingColumns": [
+            "telegram_user"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2288,
+        32
+      ],
+      "id": "0f63e63b-b0c5-4043-aa03-b4ee041a7cc7",
+      "name": "Guardar Sesión Actualizada (Núcleo)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 296756109,
+          "mode": "list",
+          "cachedResultName": "Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=296756109"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{$now.toISO()}}",
+            "telegram_user": "={{$json.telegramUser}}",
+            "pantalla": "={{$json.pantallaLog}}",
+            "opcion_elegida": "={{$json.opcionLog}}",
+            "resultado": "={{$json.accion}}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "timestamp",
+              "displayName": "timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "telegram_user",
+              "displayName": "telegram_user",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "pantalla",
+              "displayName": "pantalla",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "opcion_elegida",
+              "displayName": "opcion_elegida",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "resultado",
+              "displayName": "resultado",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2288,
+        176
+      ],
+      "id": "a06bfdfe-d9d8-4a91-8baf-6744b7c95846",
+      "name": "Registrar Log de Interacción (Núcleo)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2288,
+        320
+      ],
+      "id": "37b8b520-c6fa-4d6a-ab2b-8901b77d0d6c",
+      "name": "Enviar Respuesta al Usuario (Núcleo)",
+      "webhookId": "89dbbd1f-2ce1-401e-ba65-bdff62359fc8",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gc",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_CITA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_CITA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gt",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_TAREA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_TAREA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gh",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_HABITO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_HABITO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gr",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_RECORDATORIO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_RECORDATORIO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vt",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_TAREAS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_TAREAS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vr",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_RECORDATORIOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_RECORDATORIOS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vh",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_HABITOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_HABITOS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-ac",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_CITA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_CITA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-aec",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_ESTADO_CITA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_ESTADO_CITA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vc",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_CITAS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_CITAS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-at",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_TAREA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_TAREA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-ah",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_HABITO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_HABITO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gl",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_LISTA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_LISTA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vl",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_LISTAS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_LISTAS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gil",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_ITEM_LISTA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_ITEM_LISTA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vil",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_ITEMS_LISTA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_ITEMS_LISTA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-ail",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_ITEM_LISTA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_ITEM_LISTA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-gu",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "GUARDAR_USUARIO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "GUARDAR_USUARIO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-au",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_USUARIO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_USUARIO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vu",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_USUARIOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_USUARIOS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vrc",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_REPORTE_CITAS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_REPORTE_CITAS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-acn",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_CONFIG_NOMBRE",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_CONFIG_NOMBRE"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-ach",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "ACTUALIZAR_CONFIG_HORARIO",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "ACTUALIZAR_CONFIG_HORARIO"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vgc",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VERIFICAR_Y_GUARDAR_CITA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VERIFICAR_Y_GUARDAR_CITA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vpt",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_PRODUCTIVIDAD_TAREAS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_PRODUCTIVIDAD_TAREAS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vch",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_CUMPLIMIENTO_HABITOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_CUMPLIMIENTO_HABITOS"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vea",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_ESTADO_AGENDA",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_ESTADO_AGENDA"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 1
+                },
+                "conditions": [
+                  {
+                    "id": "sw-vpu",
+                    "leftValue": "={{$json.accion}}",
+                    "rightValue": "VER_PRODUCTIVIDAD_USUARIOS",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "VER_PRODUCTIVIDAD_USUARIOS"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        2608,
+        -128
+      ],
+      "id": "283ae92b-2dfb-464c-916d-77a0e2157a55",
+      "name": "Enrutar Acción por Módulo (Núcleo)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Citas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_cita": "={{ (function(){ const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}'); return d.id_generado || ('CITA-' + Date.now().toString().slice(-6)); })() }}",
+            "fecha": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').fecha }}",
+            "hora": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').hora }}",
+            "nombre": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nombre }}",
+            "motivo": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').motivo }}",
+            "canal": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').canal }}",
+            "estado": "programada",
+            "creado_por": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}",
+            "timestamp_creacion": "={{ $now.toISO() }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        80
+      ],
+      "id": "5c931d13-e302-4291-9aca-c5fc5aa25aca",
+      "name": "Guardar Cita en Sheet (Agenda)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tareas",
+          "mode": "list",
+          "cachedResultName": "Tareas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_tarea": "={{ (function(){ const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}'); return d.id_generado || ('TAREA-' + Date.now().toString().slice(-6)); })() }}",
+            "titulo": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').titulo }}",
+            "prioridad": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').prioridad }}",
+            "estado": "pendiente",
+            "fecha_objetivo": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').fecha_objetivo || '' }}",
+            "creado_por": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        272
+      ],
+      "id": "670b34fb-6808-4f92-a212-68e28474d563",
+      "name": "Guardar Tarea en Sheet (Tareas)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Habitos",
+          "mode": "list",
+          "cachedResultName": "Habitos"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_habito": "={{ (function(){ const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}'); return d.id_generado || ('HABITO-' + Date.now().toString().slice(-6)); })() }}",
+            "nombre": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nombre }}",
+            "frecuencia": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').frecuencia }}",
+            "hora_recordatorio": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').hora }}",
+            "estado": "activo",
+            "creado_por": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        480
+      ],
+      "id": "846022f6-0c5c-4173-954e-7c1bcb1fddbc",
+      "name": "Guardar Hábito en Sheet (Hábitos)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Recordatorios",
+          "mode": "name",
+          "cachedResultName": "Recordatorios"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_recordatorio": "={{ (function(){ const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}'); return d.id_generado || ('REC-' + Date.now().toString().slice(-6)); })() }}",
+            "mensaje": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').mensaje }}",
+            "fecha": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').fecha }}",
+            "hora": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').hora }}",
+            "creado_por": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        672
+      ],
+      "id": "cbe1f5a7-be30-44b2-abb7-137cb785cd01",
+      "name": "Guardar Recordatorio en Sheet (Recordatorios)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tareas",
+          "mode": "list",
+          "cachedResultName": "Tareas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        880
+      ],
+      "id": "1468d462-aae1-4fb7-b653-ea5e1bca5ffb",
+      "name": "Leer Tareas Guardadas (Consulta Tareas)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = String($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser);\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst filas = $input.all().map(i=>i.json).filter(r=>r.id_tarea);\nconst mias = filas.filter(r=>(!r.creado_por||String(r.creado_por)===user)&&r.estado!=='cancelada'&&r.estado!=='completada');\n\nlet txt = '📋 **Tus tareas pendientes:**\\n\\n';\nif (mias.length === 0) {\n  txt += 'No tienes tareas pendientes.\\n\\nEscribe **1** para crear una o **9** para volver.';\n} else {\n  mias.forEach((t,i) => {\n    txt += `${i+1}. **[${t.id_tarea}]** ${t.titulo}\\n   ⚡ Prioridad: ${t.prioridad} | 📅 Fecha: ${t.fecha_objetivo || 'sin fecha'}\\n   Estado: **${t.estado}**\\n\\n`;\n  });\n  txt += '9. Volver';\n}\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        880
+      ],
+      "id": "cb36c02e-854b-4405-98aa-40d5f2a66acf",
+      "name": "Formatear Listado de Tareas (Consulta Tareas)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Recordatorios",
+          "mode": "name",
+          "cachedResultName": "Recordatorios"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        1072
+      ],
+      "id": "566ae85d-40d3-41d1-9298-a0cde273cc56",
+      "name": "Leer Recordatorios Guardados (Consulta Recordatorios)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = String($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser);\nconst filas = $input.all().map(i=>i.json).filter(r=>r.id_recordatorio);\nconst mios = filas.filter(r=>!r.creado_por||String(r.creado_por)===user);\n\nlet txt = \"🔔 **Tus recordatorios:**\\n\\n\";\nif (mios.length === 0) {\n  txt += \"No tienes recordatorios registrados.\\n\\nEscribe **1** para crear uno o **9** para volver.\";\n} else {\n  mios.forEach((r,i) => {\n    txt += `${i+1}. **[${r.id_recordatorio}]**\\n   📝 ${r.mensaje}\\n   📅 ${r.fecha} a las ${r.hora}\\n\\n`;\n  });\n  txt += \"- **9.** Volver al menú Recordatorios (9)\";\n}\nreturn [{ json: { chatId, respuesta: txt } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        1072
+      ],
+      "id": "a45e39f7-6978-4f3b-ad94-26f1e2a86991",
+      "name": "Formatear Listado de Recordatorios (Consulta Recordatorios)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Habitos",
+          "mode": "list",
+          "cachedResultName": "Habitos"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        1280
+      ],
+      "id": "05aa583e-51ca-4a95-91d9-640e13b43b6d",
+      "name": "Leer Hábitos Guardadas (Consulta Hábitos)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const user = String($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser);\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst filas = $input.all().map(i=>i.json).filter(r=>r.id_habito);\nconst mios = filas.filter(r=>!r.creado_por||String(r.creado_por)===user);\n\nlet txt = '🔁 **Tus hábitos:**\\n\\n';\nif (mios.length === 0) {\n  txt += 'No tienes hábitos registrados.\\n\\nEscribe **1** para crear uno o **9** para volver.';\n} else {\n  mios.forEach((h,i) => {\n    const e = h.estado === 'activo' ? '✅' : '⏸️';\n    txt += `${i+1}. ${e} **[${h.id_habito}]** ${h.nombre}\\n   🔔 ${h.frecuencia} a las ${h.hora_recordatorio}\\n   Estado: ${h.estado}\\n\\n`;\n  });\n  txt += '9. Volver';\n}\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        1280
+      ],
+      "id": "fc41ae4a-40bc-4b89-a81f-fcf3ecf871dc",
+      "name": "Formatear Listado de Hábitos (Consulta Hábitos)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        880
+      ],
+      "id": "ab94c82b-ca69-4627-92e9-e870f6892438",
+      "name": "Enviar Listado de Tareas (Consulta Tareas)",
+      "webhookId": "6b0806c8-afef-4e5a-8eca-79c1cbc0b623",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        1072
+      ],
+      "id": "cfc57873-400d-4915-bcc4-9abeef32a6b9",
+      "name": "Enviar Listado de Recordatorios (Consulta Recordatorios)",
+      "webhookId": "a98af542-694f-4aec-af00-50f1743b54f0",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        1280
+      ],
+      "id": "f1811955-cbf7-4e30-9851-48a272424e32",
+      "name": "Enviar Listado de Hábitos (Consulta Hábitos)",
+      "webhookId": "c6399d97-b896-4be5-97e8-2e196833cf40",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Citas",
+          "mode": "list",
+          "cachedResultName": "Citas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_cita": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_cita }}",
+            "fecha": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nueva_fecha }}",
+            "hora": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nueva_hora }}"
+          },
+          "matchingColumns": [
+            "id_cita"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        1472
+      ],
+      "id": "d53070ef-ecd2-4ea7-92ad-31650bf20139",
+      "name": "Actualizar Cita en Sheet (Agenda)"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Citas",
+          "mode": "list",
+          "cachedResultName": "Citas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_cita": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_cita }}",
+            "estado": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').estado_destino }}"
+          },
+          "matchingColumns": [
+            "id_cita"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        1680
+      ],
+      "id": "661288be-1e5d-4b7c-ba2b-89d5ba53e046",
+      "name": "Actualizar Estado de Cita (Agenda)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Citas",
+          "mode": "list",
+          "cachedResultName": "Citas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        2080
+      ],
+      "id": "355c82c2-47be-477d-9572-9d1b960a052d",
+      "name": "Leer Citas Guardadas (Consulta Citas)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}');\nconst fecha = d.fecha_consulta;\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json);\nconst encontradas = rows.filter(r => String(r.fecha) === String(fecha) && String(r.creado_por) === String(user) && r.estado !== 'cancelada');\n\nlet txt;\nif (encontradas.length === 0) {\n  txt = `🔍 No encontré citas para el **${fecha}**.\\n\\nEscribe *9* para volver a Agenda.`;\n} else {\n  txt = `📅 **Citas para el ${fecha}:**\\n\\n`;\n  encontradas.forEach((c) => {\n    txt += `• **[${c.id_cita}]**\\n   🕒 ${c.hora} | 👤 ${c.nombre}\\n   📝 ${c.motivo}\\n   📍 ${c.canal} | Estado: **${c.estado}**\\n\\n`;\n  });\n  txt += `Escribe *9* para volver a Agenda.`;\n}\nreturn [{ json: { chatId, respuesta: txt } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        2080
+      ],
+      "id": "fdd3a586-e177-43c1-a91b-235d628bf3d1",
+      "name": "Filtrar y Formatear Citas (Consulta Citas)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        2080
+      ],
+      "id": "054c7916-23f3-4852-98ae-f6b151da0bd0",
+      "name": "Enviar Listado de Citas (Consulta Citas)",
+      "webhookId": "f6aaf3a7-c074-416f-8f0b-6eea47300ab4",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tareas",
+          "mode": "list",
+          "cachedResultName": "Tareas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_tarea": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_tarea }}",
+            "estado": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_estado }}"
+          },
+          "matchingColumns": [
+            "id_tarea"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        2272
+      ],
+      "id": "ea169d76-4a42-440c-b897-1ff1a3bf0f48",
+      "name": "Actualizar Tarea en Sheet (Tareas)"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Habitos",
+          "mode": "list",
+          "cachedResultName": "Habitos"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_habito": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_habito }}",
+            "estado": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_estado }}"
+          },
+          "matchingColumns": [
+            "id_habito"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        2480
+      ],
+      "id": "42b5e918-c991-4127-bca5-53406a742de9",
+      "name": "Actualizar Hábito en Sheet (Hábitos)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1619726546,
+          "mode": "list",
+          "cachedResultName": "Usuarios",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1619726546"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1648,
+        -128
+      ],
+      "id": "ea09495c-42d7-4b33-8339-24e4ce561424",
+      "name": "Leer Usuarios (Permisos)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "let original;\ntry {\n  original = $('Armar Objeto de Sesión (Sesión)').first().json;\n} catch (e) {\n  original = {};\n}\n\nlet filas = [];\ntry {\n  filas = $('Leer Usuarios (Permisos)').all().map(i => i.json);\n} catch (e) {\n  filas = [];\n}\n\nconst telegramUser = String(original.telegramUser || '');\nconst fila = filas.find(f => String(f.telegram_user) === telegramUser);\n\nlet permitido, rol;\nif (!fila) {\n  // Usuario no registrado en la hoja Usuarios -> acceso denegado por defecto\n  permitido = false;\n  rol = 'usuario';\n} else {\n  const p = String(fila.permitido).toUpperCase();\n  permitido = (p === 'TRUE' || p === 'SI' || p === '1');\n  rol = (fila.rol || 'usuario').toString().trim().toLowerCase();\n}\n\nreturn [{ json: { ...original, permitido, rol } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        -128
+      ],
+      "id": "bd536fa9-8fd8-439b-a216-b25afa953bb8",
+      "name": "Verificar Permiso Usuario (Permisos)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Listas",
+          "mode": "list",
+          "cachedResultName": "Listas"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_lista": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_generado }}",
+            "nombre_lista": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nombre_lista }}",
+            "tipo": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').tipo }}",
+            "creado_por": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        2672
+      ],
+      "id": "e06c0e99-ca23-455a-a096-5675cc6e14d2",
+      "name": "Guardar Lista en Sheet (Listas)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Listas",
+          "mode": "list",
+          "cachedResultName": "Listas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        2880
+      ],
+      "id": "1215119d-1846-4faf-9347-bc3f2479e5e0",
+      "name": "Leer Listas Guardadas (Consulta Listas)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json);\nconst mias = rows.filter(r => String(r.creado_por) === String(user));\n\nlet txt;\nif (mias.length === 0) {\n  txt = `📃 Todavía no tienes listas creadas.\\n\\nEscribe *1* para crear una o *9* para volver.`;\n} else {\n  txt = `📃 **Tus listas:**\\n\\n`;\n  mias.forEach((l) => {\n    txt += `• **[${l.id_lista}]** ${l.nombre_lista} (${l.tipo})\\n`;\n  });\n  txt += `\\nEscribe *9* para volver al menú.`;\n}\nreturn [{ json: { chatId, respuesta: txt } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        2880
+      ],
+      "id": "62c0aef7-1e54-4684-b7d9-3d6b915bcedc",
+      "name": "Filtrar y Formatear Listas (Consulta Listas)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        2880
+      ],
+      "id": "60da3fc6-3999-4be8-856c-e1dcde169923",
+      "name": "Enviar Listado de Listas (Consulta Listas)",
+      "webhookId": "b6254c4e-1b11-4407-bf7f-d665b9a451e0",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Items_Lista",
+          "mode": "list",
+          "cachedResultName": "Items_Lista"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_item": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_generado }}",
+            "id_lista": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_lista }}",
+            "item": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').item }}",
+            "estado": "pendiente"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        3072
+      ],
+      "id": "075ab973-6b95-4dd4-b3b7-76c2f542f47c",
+      "name": "Guardar Item en Sheet (Items_Lista)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Items_Lista",
+          "mode": "list",
+          "cachedResultName": "Items_Lista"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        3280
+      ],
+      "id": "d10934d0-7ab1-44e6-9af0-c9243298e12f",
+      "name": "Leer Items Guardados (Consulta Items_Lista)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}');\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst idLista = d.id_lista;\nconst rows = $input.all().map(i => i.json);\nconst items = rows.filter(r => String(r.id_lista) === String(idLista));\n\nlet txt;\nif (items.length === 0) {\n  txt = `📋 La lista **${idLista}** no tiene ítems todavía.\\n\\nEscribe *9* para volver.`;\n} else {\n  const emoji = e => e === 'completado' ? '✅' : '⬜';\n  txt = `📋 **Ítems de ${idLista}:**\\n\\n`;\n  items.forEach((it) => {\n    txt += `${emoji(it.estado)} **[${it.id_item}]** ${it.item} — ${it.estado}\\n`;\n  });\n  txt += `\\nEscribe *9* para volver.`;\n}\nreturn [{ json: { chatId, respuesta: txt } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        3280
+      ],
+      "id": "845e8387-c699-4f13-9307-12dda2886a6e",
+      "name": "Filtrar y Formatear Items (Consulta Items_Lista)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        3280
+      ],
+      "id": "cb34e74e-364d-4dce-a598-86c28a5ff926",
+      "name": "Enviar Listado de Items (Consulta Items_Lista)",
+      "webhookId": "866d1692-a68f-4e8f-ab8e-ccdf31d5018f",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Items_Lista",
+          "mode": "list",
+          "cachedResultName": "Items_Lista"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_item": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').id_item }}",
+            "estado": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_estado }}"
+          },
+          "matchingColumns": [
+            "id_item"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        3472
+      ],
+      "id": "40bf83a2-fd89-4cd3-aa46-e548f9948ae7",
+      "name": "Actualizar Item en Sheet (Items_Lista)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Usuarios",
+          "mode": "list",
+          "cachedResultName": "Usuarios"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegram_user": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').telegram_user_nuevo }}",
+            "nombre": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nombre }}",
+            "rol": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').rol }}",
+            "permitido": "TRUE"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        3680
+      ],
+      "id": "1f676e16-55e3-484f-89b0-16ad828e520b",
+      "name": "Guardar Usuario en Sheet (Usuarios)"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Usuarios",
+          "mode": "list",
+          "cachedResultName": "Usuarios"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegram_user": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').telegram_user_target }}",
+            "permitido": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_permitido ? 'TRUE' : 'FALSE' }}"
+          },
+          "matchingColumns": [
+            "telegram_user"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        3872
+      ],
+      "id": "52a33d6c-21bd-416c-917a-7ad511dfe069",
+      "name": "Actualizar Usuario en Sheet (Usuarios)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1619726546,
+          "mode": "list",
+          "cachedResultName": "Usuarios",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1619726546"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        4080
+      ],
+      "id": "2281c1f9-d824-4617-b188-858a4bd2aae8",
+      "name": "Leer Usuarios Guardados (Consulta Usuarios)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst rows = $input.all().map(i => i.json);\n\nlet txt;\nif (rows.length === 0) {\n  txt = `👥 No hay usuarios registrados todavía.\\n\\n9. Volver`;\n} else {\n  txt = `👥 **Usuarios registrados:**\\n\\n`;\n  rows.forEach((u, i) => {\n    const acceso = String(u.permitido).toUpperCase() === 'TRUE' ? '✅ Permitido' : '🚫 Bloqueado';\n    txt += `${i+1}. **${u.telegram_user}** — ${u.nombre || 's/n'}\\n   Rol: ${u.rol} | ${acceso}\\n\\n`;\n  });\n  txt += `9. Volver`;\n}\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        4080
+      ],
+      "id": "dd1e49c7-fbe8-4393-bdb0-bfaec4ba2a13",
+      "name": "Formatear Listado de Usuarios (Consulta Usuarios)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        4080
+      ],
+      "id": "7946e165-509e-4bfa-9925-76a18eec85da",
+      "name": "Enviar Listado de Usuarios (Consulta Usuarios)",
+      "webhookId": "f69fccf2-4411-4a06-86ad-2dccf3f9d93c",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Citas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        4272
+      ],
+      "id": "02f2bf98-7f85-46e6-8b38-90d889c45fd1",
+      "name": "Leer Citas para Reporte (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}');\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rango = d.rango; // 'hoy' o 'semana'\n\nconst citas = $input.all().map(i => i.json);\n\nconst hoy = new Date(); hoy.setHours(0,0,0,0);\nconst limite = new Date(hoy);\nif (rango === 'semana') limite.setDate(limite.getDate() + 7);\nelse limite.setDate(limite.getDate() + 1);\n\nconst misCitas = citas.filter(r => {\n  if (String(r.creado_por) !== String(user)) return false;\n  if (r.estado === 'cancelada') return false;\n  const f = new Date(r.fecha + 'T00:00:00');\n  return f >= hoy && f < limite;\n}).sort((a,b) => (a.fecha+a.hora).localeCompare(b.fecha+b.hora));\n\nconst titulo = rango === 'semana' ? 'esta semana' : 'hoy';\nlet txt = `📊 *Reporte de ${titulo}:*\n\n`;\ntxt += `📅 *Citas (${misCitas.length}):*\n`;\nif (misCitas.length === 0) {\n  txt += `Sin citas programadas.\n`;\n} else {\n  misCitas.forEach(c => { txt += `• ${c.fecha} ${c.hora} — ${c.nombre} (${c.motivo}) [${c.estado}]\n`; });\n}\ntxt += `\nEscribe *9* para volver al menú.`;\nreturn [{ json: { chatId, respuesta: txt } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        4272
+      ],
+      "id": "a1581422-505b-484e-aebc-eb1fd22b6400",
+      "name": "Filtrar y Formatear Reporte Citas (Reportes)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        4272
+      ],
+      "id": "e35ac704-9107-4541-a25d-0988e8a0fcff",
+      "name": "Enviar Reporte de Citas (Reportes)",
+      "webhookId": "47efd35e-c8c5-4c2d-bed1-83ffe36f9206",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Usuarios",
+          "mode": "list",
+          "cachedResultName": "Usuarios"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegram_user": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}",
+            "nombre": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_nombre }}"
+          },
+          "matchingColumns": [
+            "telegram_user"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        4480
+      ],
+      "id": "84a41ea5-96aa-4a6f-8c0f-56ab691e3fdc",
+      "name": "Actualizar Nombre en Sheet (Configuracion)"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Usuarios",
+          "mode": "list",
+          "cachedResultName": "Usuarios"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "telegram_user": "={{ $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser }}",
+            "horario_recordatorios": "={{ JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}').nuevo_horario }}"
+          },
+          "matchingColumns": [
+            "telegram_user"
+          ],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        4672
+      ],
+      "id": "e71cd340-12dd-4314-8508-cfa3e0cbde42",
+      "name": "Actualizar Horario en Sheet (Configuracion)"
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}');\nconst idLista = d.id_generado;\nconst items = Array.isArray(d.items) ? d.items : [];\nreturn items.map((texto, i) => ({\n  json: {\n    id_item: 'ITEM-' + (Date.now() + i).toString().slice(-6),\n    id_lista: idLista,\n    item: texto,\n    estado: 'pendiente'\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3568,
+        2672
+      ],
+      "id": "c6a940af-3bae-4a89-ae8b-375dff7f0883",
+      "name": "Preparar Items de Lista Nueva (Listas)"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Items_Lista",
+          "mode": "list",
+          "cachedResultName": "Items_Lista"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id_item": "={{$json.id_item}}",
+            "id_lista": "={{$json.id_lista}}",
+            "item": "={{$json.item}}",
+            "estado": "={{$json.estado}}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3888,
+        2672
+      ],
+      "id": "0b98714c-b78f-4938-8cb3-f1c62a87581f",
+      "name": "Guardar Items de Lista Nueva en Sheet (Listas)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Citas",
+          "mode": "list",
+          "cachedResultName": "Citas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        4880
+      ],
+      "id": "75a627e3-63ef-45c2-872c-613af31763bf",
+      "name": "Leer Citas para Verificar Disponibilidad (Agenda)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const d = JSON.parse($('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.nuevosDatos || '{}');\nconst chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json);\n\nconst choque = rows.find(r =>\n  String(r.creado_por) === String(user) &&\n  String(r.fecha) === String(d.fecha) &&\n  String(r.hora) === String(d.hora) &&\n  r.estado !== 'cancelada'\n);\n\nif (choque) {\n  return [{ json: {\n    conflicto: true,\n    respuesta: `⚠️ Ya tienes una cita agendada para el **${d.fecha}** a las **${d.hora}** (ID: **${choque.id_cita}**).\\n\\nNo se guardó la nueva cita para evitar una doble reserva.\\n\\n- **1.** Volver a Agenda\\n- **2.** Ir al menú principal`,\n    chatId\n  }}];\n}\n\nreturn [{ json: {\n  conflicto: false,\n  chatId,\n  id_cita: d.id_generado || ('CITA-'+Date.now().toString().slice(-6)),\n  fecha: d.fecha, hora: d.hora, nombre: d.nombre,\n  motivo: d.motivo, canal: d.canal, estado: 'programada',\n  creado_por: user, timestamp_creacion: new Date().toISOString()\n}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        4880
+      ],
+      "id": "7b9ea8bc-66c9-42a6-bcc5-c491fa4a27f6",
+      "name": "Verificar Disponibilidad (Agenda)"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-conflicto",
+              "leftValue": "={{$json.conflicto}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        3568,
+        4880
+      ],
+      "id": "118b104a-6d80-4aa4-a5f5-c042f3cf1916",
+      "name": "¿Hay Conflicto de Horario? (Agenda)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3888,
+        4880
+      ],
+      "id": "b83eb508-7c32-4498-bb08-d037ae42f65e",
+      "name": "Enviar Aviso de Conflicto (Agenda)",
+      "webhookId": "4242611a-8529-45f3-b7ad-4937250f11e3",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{'¡Listo! Tu cita quedó agendada correctamente. ✅\\n\\nID de la cita: *' + $json.id_cita + '*\\n\\n- *1.* Volver a Agenda\\n- *2.* Ir al menú principal'}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        80
+      ],
+      "id": "8f92dc24-b9cc-4f9c-8fb1-576da1608ce9",
+      "name": "Enviar Confirmacion de Cita Guardada (Agenda)",
+      "webhookId": "f17a99ce-ae60-4c42-97c3-4fff8c1d2a0b",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        368,
+        5984
+      ],
+      "id": "7b57caa3-1e07-4b6c-8832-4ca8969bdc8f",
+      "name": "Disparador Diario (Resumen)"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Usuarios",
+          "mode": "list",
+          "cachedResultName": "Usuarios"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        688,
+        5984
+      ],
+      "id": "344c21db-fcd4-4c71-a2f7-f1edafdbf12d",
+      "name": "Leer Usuarios para Resumen (Resumen Diario)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Citas",
+          "mode": "list",
+          "cachedResultName": "Citas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1008,
+        5984
+      ],
+      "id": "0b793c48-face-4df9-a2aa-a55212af11c6",
+      "name": "Leer Citas para Resumen (Resumen Diario)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Tareas",
+          "mode": "list",
+          "cachedResultName": "Tareas"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        5984
+      ],
+      "id": "83d8adda-fedf-4bf2-9f17-e21efde206d2",
+      "name": "Leer Tareas para Resumen (Resumen Diario)",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const usuarios = $('Leer Usuarios para Resumen (Resumen Diario)').all().map(i => i.json);\nconst citas = $('Leer Citas para Resumen (Resumen Diario)').all().map(i => i.json);\nconst tareas = $('Leer Tareas para Resumen (Resumen Diario)').all().map(i => i.json);\n\nconst ahora = new Date();\nconst horaActual = String(ahora.getHours()).padStart(2, '0') + ':00';\nconst hoyStr = ahora.toISOString().split('T')[0];\n\nconst salida = [];\n\nusuarios.forEach(u => {\n  const permitido = String(u.permitido).toUpperCase();\n  if (!(permitido === 'TRUE' || permitido === 'SI' || permitido === '1')) return;\n\n  const horarioPref = (u.horario_recordatorios || '07:00').trim();\n  if (horarioPref !== horaActual) return; // solo se envia a la hora configurada por el usuario\n\n  const misCitas = citas.filter(c =>\n    String(c.creado_por) === String(u.telegram_user) &&\n    String(c.fecha) === hoyStr &&\n    c.estado !== 'cancelada'\n  ).sort((a,b) => String(a.hora).localeCompare(String(b.hora)));\n\n  const misTareas = tareas.filter(t =>\n    String(t.creado_por) === String(u.telegram_user) &&\n    t.estado !== 'completada' && t.estado !== 'cancelada'\n  );\n\n  if (misCitas.length === 0 && misTareas.length === 0) return; // no molestar si no hay nada pendiente\n\n  let mensaje = `☀️ *Buenos días${u.nombre ? ', ' + u.nombre : ''}!*\\n\\nAquí tu resumen de hoy (${hoyStr}):\\n\\n`;\n\n  if (misCitas.length > 0) {\n    mensaje += `📅 *Citas de hoy (${misCitas.length}):*\\n`;\n    misCitas.forEach(c => {\n      mensaje += `• ${c.hora} — ${c.nombre} (${c.motivo})\\n`;\n    });\n    mensaje += `\\n`;\n  } else {\n    mensaje += `📅 No tienes citas agendadas para hoy.\\n\\n`;\n  }\n\n  if (misTareas.length > 0) {\n    mensaje += `📋 *Tareas pendientes (${misTareas.length}):*\\n`;\n    misTareas.slice(0, 5).forEach(t => {\n      mensaje += `• [${t.prioridad}] ${t.titulo}\\n`;\n    });\n    if (misTareas.length > 5) mensaje += `...y ${misTareas.length - 5} más.\\n`;\n  } else {\n    mensaje += `📋 No tienes tareas pendientes. ¡Vas al día! ✅`;\n  }\n\n  salida.push({ json: { chatId: u.telegram_user, mensaje } });\n});\n\nreturn salida;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1648,
+        5984
+      ],
+      "id": "efa0ec08-c9ff-47ee-870b-c23a17d0cc47",
+      "name": "Armar Resumenes Diarios (Resumen Diario)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.mensaje}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1968,
+        5984
+      ],
+      "id": "9f83f03b-db27-442b-8aa7-860341022caf",
+      "name": "Enviar Resumen Diario (Resumen Diario)",
+      "webhookId": "d9ba9b14-ec47-413c-89a1-a86b9a618735",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1823671617,
+          "mode": "list",
+          "cachedResultName": "Tareas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1823671617"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        5072
+      ],
+      "id": "a1b87792-190b-4c77-8786-aa078d758bed",
+      "name": "Leer Tareas para Productividad (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json).filter(t => t.creado_por);\nconst mias = rows.filter(t => String(t.creado_por) === String(user));\n\nconst porPrioridad = {};\nlet completadas = 0, pendientes = 0, enProgreso = 0, canceladas = 0;\nmias.forEach(t => {\n  porPrioridad[t.prioridad] = (porPrioridad[t.prioridad]||0) + 1;\n  if (t.estado === 'completada') completadas++;\n  else if (t.estado === 'pendiente') pendientes++;\n  else if (t.estado === 'en_progreso') enProgreso++;\n  else if (t.estado === 'cancelada') canceladas++;\n});\n\nlet txt = `📈 *Productividad de tareas:*\\n\\n`;\ntxt += `Total: **${mias.length}**\\n`;\ntxt += `• Completadas: ${completadas}\\n`;\ntxt += `• En progreso: ${enProgreso}\\n`;\ntxt += `• Pendientes: ${pendientes}\\n`;\ntxt += `• Canceladas: ${canceladas}\\n\\n`;\ntxt += `Por prioridad: ` + Object.entries(porPrioridad).map(([k,v])=>`${k}: ${v}`).join(' | ') + `\\n`;\ntxt += `\\nEscribe *9* para volver al menú.`;\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        5072
+      ],
+      "id": "1f31cc63-3ec7-411e-a139-a197562bdc4d",
+      "name": "Calcular Productividad Tareas (Reportes)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        5072
+      ],
+      "id": "74dd173a-0007-4440-a9f0-6cb7c22dfecd",
+      "name": "Enviar Productividad Tareas (Reportes)",
+      "webhookId": "8618f3c9-79c2-4cd9-9c84-f32531866f39",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1144112445,
+          "mode": "list",
+          "cachedResultName": "Habitos",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1144112445"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        5280
+      ],
+      "id": "130fbc6c-baa6-4be4-a427-601ff534f6a6",
+      "name": "Leer Habitos para Reporte (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json).filter(h => h.id_habito);\nconst mios = rows.filter(h => !h.creado_por || String(h.creado_por) === String(user));\n\nconst activos = mios.filter(h => h.estado === 'activo').length;\nconst inactivos = mios.filter(h => h.estado !== 'activo').length;\n\nlet txt = `🔁 *Cumplimiento de hábitos:*\\n\\n`;\ntxt += `Total: **${mios.length}** | Activos: ${activos} | Inactivos: ${inactivos}\\n\\n`;\nif (mios.length === 0) {\n  txt += `No tienes hábitos registrados.\\n`;\n} else {\n  mios.forEach(h => { txt += `• ${h.estado==='activo'?'✅':'⏸️'} ${h.nombre} (${h.frecuencia}, ${h.hora_recordatorio})\\n`; });\n}\ntxt += `\\nEscribe *9* para volver al menú.`;\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        5280
+      ],
+      "id": "b200025d-437a-4d2c-841f-49c1ed6fb74e",
+      "name": "Calcular Cumplimiento Habitos (Reportes)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        5280
+      ],
+      "id": "8dcfdc25-e907-4d98-b704-9f6b053657c8",
+      "name": "Enviar Cumplimiento Habitos (Reportes)",
+      "webhookId": "faa18ac2-0369-45cc-b4f4-9877219ce650",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Citas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        5472
+      ],
+      "id": "e1d289f3-233b-4f6a-86c2-711d9241cbd4",
+      "name": "Leer Citas para Estado Agenda (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\nconst user = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.telegramUser;\nconst rows = $input.all().map(i => i.json).filter(c => c.creado_por);\nconst mias = rows.filter(c => String(c.creado_por) === String(user));\n\nconst porEstado = {};\nmias.forEach(c => { porEstado[c.estado] = (porEstado[c.estado]||0) + 1; });\n\nlet txt = `📅 *Estado de tu agenda:*\\n\\n`;\ntxt += `Total de citas: **${mias.length}**\\n`;\nObject.entries(porEstado).forEach(([estado, cant]) => { txt += `• ${estado}: ${cant}\\n`; });\nif (mias.length === 0) txt += `Todavía no has registrado ninguna cita.\\n`;\ntxt += `\\nEscribe *9* para volver al menú.`;\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3248,
+        5472
+      ],
+      "id": "138f0695-d38b-4d9a-b82f-1c8ba0d885cc",
+      "name": "Calcular Estado de Agenda (Reportes)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3568,
+        5472
+      ],
+      "id": "a74ea12b-cd01-49df-8d72-46bafe60b0ce",
+      "name": "Enviar Estado de Agenda (Reportes)",
+      "webhookId": "246313c3-edda-4c6e-acf1-5b2f3fda4a1a",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Citas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        2928,
+        5680
+      ],
+      "id": "e157af75-e4fa-4113-8291-f0968b91b98e",
+      "name": "Leer Citas para Productividad Usuarios (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1823671617,
+          "mode": "list",
+          "cachedResultName": "Tareas",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1823671617"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3248,
+        5680
+      ],
+      "id": "71269f2f-4f01-460c-83bf-7a1e16b1486a",
+      "name": "Leer Tareas para Productividad Usuarios (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 296756109,
+          "mode": "list",
+          "cachedResultName": "Logs",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=296756109"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3744,
+        5680
+      ],
+      "id": "ff1a26e3-2d3e-4201-b6a6-bb09b1923f86",
+      "name": "Leer Logs para Productividad Usuarios (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = $('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId;\n\nconst citas = $('Leer Citas para Productividad Usuarios (Reportes)').all().map(i=>i.json).filter(c => c.creado_por);\nconst tareas = $('Leer Tareas para Productividad Usuarios (Reportes)').all().map(i=>i.json).filter(t => t.creado_por);\nconst logs = $('Leer Logs para Productividad Usuarios (Reportes)').all().map(i=>i.json).filter(l => l.telegram_user);\nconst usuariosInfo = $('Leer Usuarios para Productividad Usuarios (Reportes)').all().map(i=>i.json);\n\nconst mapaNombres = {};\nusuariosInfo.forEach(u => {\n  if (u.telegram_user) mapaNombres[String(u.telegram_user)] = u.nombre;\n});\n\nfunction mostrarComo(id) {\n  const nombre = mapaNombres[id];\n  if (nombre && nombre.trim().length > 0) {\n    const alias = nombre.trim().toLowerCase().replace(/\\s+/g, '');\n    return '@' + alias;\n  }\n  return '@' + id;\n}\n\nconst usuarios = new Set();\ncitas.forEach(c => usuarios.add(String(c.creado_por)));\ntareas.forEach(t => usuarios.add(String(t.creado_por)));\nlogs.forEach(l => usuarios.add(String(l.telegram_user)));\n\nif (usuarios.size === 0) {\n  return [{ json: { chatId, respuesta: `📊 *Reporte de productividad (AgendaBot)*\\n\\nTodavía no hay datos suficientes para generar un reporte.\\n\\nEscribe *9* para volver al menú.` } }];\n}\n\nconst lista = Array.from(usuarios).sort((a,b) => a.localeCompare(b));\n\nconst datosPorUsuario = lista.map(u => {\n  const misCitas = citas.filter(c => String(c.creado_por) === u);\n  const misTareas = tareas.filter(t => String(t.creado_por) === u);\n  const misLogs = logs.filter(l => String(l.telegram_user) === u);\n  return {\n    usuario: u,\n    total_citas: misCitas.length,\n    citas_completadas: misCitas.filter(c => c.estado === 'completada').length,\n    citas_canceladas: misCitas.filter(c => c.estado === 'cancelada').length,\n    total_tareas: misTareas.length,\n    tareas_completadas: misTareas.filter(t => t.estado === 'completada').length,\n    tareas_pendientes: misTareas.filter(t => t.estado === 'pendiente' || t.estado === 'en_progreso').length,\n    interacciones: misLogs.length\n  };\n});\n\nconst total_citas_registradas = citas.length;\nconst total_tareas_registradas = tareas.length;\nconst total_interacciones_bot = logs.length;\nconst masActivo = datosPorUsuario.reduce((a,b) => (b.interacciones > a.interacciones ? b : a), datosPorUsuario[0]);\nconst masActivoDisplay = mostrarComo(masActivo.usuario);\n\nlet txt = `📊 *Reporte de productividad (AgendaBot)*\\n\\n`;\ntxt += `*Resumen general*\\n`;\ntxt += `- Usuario más activo: ${masActivoDisplay}\\n`;\ntxt += `- Total citas registradas: ${total_citas_registradas}\\n`;\ntxt += `- Total tareas registradas: ${total_tareas_registradas}\\n`;\ntxt += `- Total interacciones con el bot: ${total_interacciones_bot}\\n\\n`;\ntxt += `*Detalle por usuario*\\n`;\n\ndatosPorUsuario.forEach((u, i) => {\n  txt += `${i+1}) ${mostrarComo(u.usuario)}\\n`;\n  txt += `   - Citas: ${u.total_citas} (Completadas: ${u.citas_completadas} | Canceladas: ${u.citas_canceladas})\\n`;\n  txt += `   - Tareas: ${u.total_tareas} (Hechas: ${u.tareas_completadas} | Pendientes: ${u.tareas_pendientes})\\n`;\n  txt += `   - Interacciones: ${u.interacciones}\\n\\n`;\n});\n\ntxt += `¿Qué deseas hacer ahora?\\n1. Volver al menú Reportes\\n2. Volver al menú principal`;\nreturn [{ json: { chatId, respuesta: txt } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4080,
+        5680
+      ],
+      "id": "209f446e-a192-47cf-a39c-1f1f01774c4e",
+      "name": "Calcular Productividad por Usuario (Reportes)"
+    },
+    {
+      "parameters": {
+        "operation": "sendRichMessage",
+        "chatId": "={{$('Procesar Lógica y Generar Respuesta (Núcleo)').item.json.chatId}}",
+        "richFormat": "markdown",
+        "richMessageText": "={{$json.respuesta}}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        4464,
+        5680
+      ],
+      "id": "ac8f8d7a-2c6d-4d00-aa9f-953a4a3c605d",
+      "name": "Enviar Productividad por Usuario (Reportes)",
+      "webhookId": "6c0a2c41-03b9-444a-b897-cd5c317ece47",
+      "credentials": {
+        "telegramApi": {
+          "id": "IP5GaA6l6Q1Mdc1f",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo",
+          "mode": "list",
+          "cachedResultName": "AgendaBot_DB"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1619726546,
+          "mode": "list",
+          "cachedResultName": "Usuarios",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1SaAjbd903haw7weNeuBEJU9kMzRiQB5IhmR2Cp27vCo/edit#gid=1619726546"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3520,
+        5680
+      ],
+      "id": "6809b496-d3ad-45f1-b3b7-f2a2822b80c9",
+      "name": "Leer Usuarios para Productividad Usuarios (Reportes)",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "J57CYMm3WgIF5zVE",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {
+    "Recibir Mensaje de Telegram (Entrada)": [
+      {
+        "json": {
+          "update_id": 80787645,
+          "message": {
+            "message_id": 1023,
+            "from": {
+              "id": 7512217485,
+              "is_bot": false,
+              "first_name": "Miguel",
+              "language_code": "es"
+            },
+            "chat": {
+              "id": 7512217485,
+              "first_name": "Miguel",
+              "type": "private"
+            },
+            "date": 1785963830,
+            "text": "6"
+          }
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Recibir Mensaje de Telegram (Entrada)": {
+      "main": [
+        [
+          {
+            "node": "Extraer Datos del Mensaje (Entrada)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extraer Datos del Mensaje (Entrada)": {
+      "main": [
+        [
+          {
+            "node": "Leer Sesión Guardada (Sesión)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Sesión Guardada (Sesión)": {
+      "main": [
+        [
+          {
+            "node": "Armar Objeto de Sesión (Sesión)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar Objeto de Sesión (Sesión)": {
+      "main": [
+        [
+          {
+            "node": "Leer Usuarios (Permisos)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Procesar Lógica y Generar Respuesta (Núcleo)": {
+      "main": [
+        [
+          {
+            "node": "Guardar Sesión Actualizada (Núcleo)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Registrar Log de Interacción (Núcleo)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enviar Respuesta al Usuario (Núcleo)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Enrutar Acción por Módulo (Núcleo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enrutar Acción por Módulo (Núcleo)": {
+      "main": [
+        [
+          {
+            "node": "Guardar Cita en Sheet (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Tarea en Sheet (Tareas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Hábito en Sheet (Hábitos)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Recordatorio en Sheet (Recordatorios)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Tareas Guardadas (Consulta Tareas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Recordatorios Guardados (Consulta Recordatorios)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Hábitos Guardadas (Consulta Hábitos)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Cita en Sheet (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Estado de Cita (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Citas Guardadas (Consulta Citas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Tarea en Sheet (Tareas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Hábito en Sheet (Hábitos)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Lista en Sheet (Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Listas Guardadas (Consulta Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Item en Sheet (Items_Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Items Guardados (Consulta Items_Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Item en Sheet (Items_Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Usuario en Sheet (Usuarios)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Usuario en Sheet (Usuarios)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Usuarios Guardados (Consulta Usuarios)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Citas para Reporte (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Nombre en Sheet (Configuracion)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Actualizar Horario en Sheet (Configuracion)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Citas para Verificar Disponibilidad (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Tareas para Productividad (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Habitos para Reporte (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Citas para Estado Agenda (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Leer Citas para Productividad Usuarios (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Tareas Guardadas (Consulta Tareas)": {
+      "main": [
+        [
+          {
+            "node": "Formatear Listado de Tareas (Consulta Tareas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Listado de Tareas (Consulta Tareas)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Tareas (Consulta Tareas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Recordatorios Guardados (Consulta Recordatorios)": {
+      "main": [
+        [
+          {
+            "node": "Formatear Listado de Recordatorios (Consulta Recordatorios)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Listado de Recordatorios (Consulta Recordatorios)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Recordatorios (Consulta Recordatorios)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Hábitos Guardadas (Consulta Hábitos)": {
+      "main": [
+        [
+          {
+            "node": "Formatear Listado de Hábitos (Consulta Hábitos)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Listado de Hábitos (Consulta Hábitos)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Hábitos (Consulta Hábitos)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas Guardadas (Consulta Citas)": {
+      "main": [
+        [
+          {
+            "node": "Filtrar y Formatear Citas (Consulta Citas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar y Formatear Citas (Consulta Citas)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Citas (Consulta Citas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Usuarios (Permisos)": {
+      "main": [
+        [
+          {
+            "node": "Verificar Permiso Usuario (Permisos)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Permiso Usuario (Permisos)": {
+      "main": [
+        [
+          {
+            "node": "Procesar Lógica y Generar Respuesta (Núcleo)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Listas Guardadas (Consulta Listas)": {
+      "main": [
+        [
+          {
+            "node": "Filtrar y Formatear Listas (Consulta Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar y Formatear Listas (Consulta Listas)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Listas (Consulta Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Items Guardados (Consulta Items_Lista)": {
+      "main": [
+        [
+          {
+            "node": "Filtrar y Formatear Items (Consulta Items_Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar y Formatear Items (Consulta Items_Lista)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Items (Consulta Items_Lista)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Usuarios Guardados (Consulta Usuarios)": {
+      "main": [
+        [
+          {
+            "node": "Formatear Listado de Usuarios (Consulta Usuarios)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Listado de Usuarios (Consulta Usuarios)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Listado de Usuarios (Consulta Usuarios)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas para Reporte (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Filtrar y Formatear Reporte Citas (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtrar y Formatear Reporte Citas (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Reporte de Citas (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Items de Lista Nueva (Listas)": {
+      "main": [
+        [
+          {
+            "node": "Guardar Items de Lista Nueva en Sheet (Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas para Verificar Disponibilidad (Agenda)": {
+      "main": [
+        [
+          {
+            "node": "Verificar Disponibilidad (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar Disponibilidad (Agenda)": {
+      "main": [
+        [
+          {
+            "node": "¿Hay Conflicto de Horario? (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Hay Conflicto de Horario? (Agenda)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Aviso de Conflicto (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Guardar Cita en Sheet (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Cita en Sheet (Agenda)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Confirmacion de Cita Guardada (Agenda)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Disparador Diario (Resumen)": {
+      "main": [
+        [
+          {
+            "node": "Leer Usuarios para Resumen (Resumen Diario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Usuarios para Resumen (Resumen Diario)": {
+      "main": [
+        [
+          {
+            "node": "Leer Citas para Resumen (Resumen Diario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas para Resumen (Resumen Diario)": {
+      "main": [
+        [
+          {
+            "node": "Leer Tareas para Resumen (Resumen Diario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Tareas para Resumen (Resumen Diario)": {
+      "main": [
+        [
+          {
+            "node": "Armar Resumenes Diarios (Resumen Diario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Armar Resumenes Diarios (Resumen Diario)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Resumen Diario (Resumen Diario)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Tareas para Productividad (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Calcular Productividad Tareas (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Productividad Tareas (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Productividad Tareas (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Habitos para Reporte (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Calcular Cumplimiento Habitos (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Cumplimiento Habitos (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Cumplimiento Habitos (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas para Estado Agenda (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Calcular Estado de Agenda (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Estado de Agenda (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Estado de Agenda (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Citas para Productividad Usuarios (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Leer Tareas para Productividad Usuarios (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Tareas para Productividad Usuarios (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Leer Usuarios para Productividad Usuarios (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Logs para Productividad Usuarios (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Calcular Productividad por Usuario (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calcular Productividad por Usuario (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Enviar Productividad por Usuario (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Leer Usuarios para Productividad Usuarios (Reportes)": {
+      "main": [
+        [
+          {
+            "node": "Leer Logs para Productividad Usuarios (Reportes)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Lista en Sheet (Listas)": {
+      "main": [
+        [
+          {
+            "node": "Preparar Items de Lista Nueva (Listas)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b9014a46-77c4-4cef-b7f6-f54ca722a86a",
+  "meta": {
+    "instanceId": "7426784af811ad7d71ddde55ffd61e399d9b2eb1eb75bc4d6828f4dfb6cf45a1"
+  },
+  "nodeGroups": [],
+  "id": "EdcnlXpLukd5dAsp",
+  "tags": []
+}
