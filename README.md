@@ -75,7 +75,7 @@ Al escribir `6` desde el menú principal se despliegan 6 opciones:
 4. **Agenda (estado de citas):** conteo de citas del usuario agrupadas por estado.
 5. **Productividad por usuario (reporte completo):** el único reporte que cruza datos de **todos** los usuarios del bot (no solo el que pregunta). Ver detalle abajo.
 
-![Menú de Reportes](evidencias/06%20-%20Reportes/00%20-%20Menu%20Reportes.png)
+![Menú de Reportes](evidencias/06%20-%20Reportes/00%20-%20Menu%20Reportes%20v3.png)
 
 ### Reporte de Productividad por Usuario (opción 6)
 
@@ -125,7 +125,7 @@ Detalle por usuario
 2. Volver al menú principal
 ```
 
-![Reporte de Productividad](evidencias/11%20-%20Productividad%20Usuario/00%20-%20Reporte%20Productividad.png)
+![Reporte de Productividad](evidencias/06%20-%20Reportes/03%20-%20Reporte%20completo.png)
 
 ## Modelo de Datos (Google Sheets — hoja `AgendaBot_DB`)
 
